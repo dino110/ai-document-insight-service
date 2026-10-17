@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Runtime data (uploads, indexes, SQLite, model caches)
+data/
+models/
+*.db
+*.faiss
+
+# Private notes (assignment PDF, learning docs)
+_notes/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+CLAUDE.md
+DECISIONS.md
