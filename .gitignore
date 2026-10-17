@@ -34,3 +34,6 @@ _notes/
 
 CLAUDE.md
 DECISIONS.md
+
+.claude/
+tasks/
