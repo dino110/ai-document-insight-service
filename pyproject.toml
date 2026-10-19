@@ -10,6 +10,8 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.143.3",
     "pydantic-settings>=2.16.0",
+    "python-multipart>=0.0.32",
+    "sqlmodel>=0.0.48",
     "uvicorn[standard]>=0.54.0",
 ]
 
@@ -39,8 +41,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "N", "SIM", "RUF"]
 
 [tool.mypy]
 strict = true
-packages = ["docinsight"]
-mypy_path = "src"
+files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
