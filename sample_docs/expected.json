@@ -1,0 +1,102 @@
+{
+  "racun-2026-001.pdf": {
+    "number": "2026-001",
+    "issuer": "Car d.o.o.",
+    "issuer_oib": "28196001332",
+    "buyer": "Horvat d.o.o.",
+    "buyer_oib": "99083863799",
+    "issue_date": "2026-02-27",
+    "due_date": "2026-03-29",
+    "net": "1260.00",
+    "vat": "315.00",
+    "total": "1575.00"
+  },
+  "racun-2026-002.pdf": {
+    "number": "2026-002",
+    "issuer": "Hinić d.d.",
+    "issuer_oib": "45116155941",
+    "buyer": "Bošnjak Rajn d.d.",
+    "buyer_oib": "17816184958",
+    "issue_date": "2026-01-04",
+    "due_date": "2026-01-19",
+    "net": "7630.00",
+    "vat": "1907.50",
+    "total": "9537.50"
+  },
+  "racun-2026-003.pdf": {
+    "number": "2026-003",
+    "issuer": "Fabijanić Maloča d.d.",
+    "issuer_oib": "41647525530",
+    "buyer": "Žagar Žugec d.o.o.",
+    "buyer_oib": "51928327648",
+    "issue_date": "2026-02-05",
+    "due_date": "2026-02-20",
+    "net": "3549.70",
+    "vat": "887.43",
+    "total": "4437.13"
+  },
+  "ugovor-01.pdf": {
+    "parties": [
+      "Načinović d.o.o.",
+      "Elvis Antić"
+    ],
+    "fee": "6300.00",
+    "start_date": "2026-07-01",
+    "end_date": "2026-10-29",
+    "language": "hr"
+  },
+  "ugovor-02.pdf": {
+    "parties": [
+      "Šalić d.o.o.",
+      "Fuma Madunić"
+    ],
+    "fee": "8800.00",
+    "start_date": "2026-02-20",
+    "end_date": "2026-04-21",
+    "language": "en"
+  },
+  "racun-2026-001-scan.jpg": {
+    "number": "2026-001",
+    "issuer": "Car d.o.o.",
+    "issuer_oib": "28196001332",
+    "buyer": "Horvat d.o.o.",
+    "buyer_oib": "99083863799",
+    "issue_date": "2026-02-27",
+    "due_date": "2026-03-29",
+    "net": "1260.00",
+    "vat": "315.00",
+    "total": "1575.00"
+  },
+  "racun-2026-001-scan.pdf": {
+    "number": "2026-001",
+    "issuer": "Car d.o.o.",
+    "issuer_oib": "28196001332",
+    "buyer": "Horvat d.o.o.",
+    "buyer_oib": "99083863799",
+    "issue_date": "2026-02-27",
+    "due_date": "2026-03-29",
+    "net": "1260.00",
+    "vat": "315.00",
+    "total": "1575.00"
+  },
+  "ugovor-01-scan.jpg": {
+    "parties": [
+      "Načinović d.o.o.",
+      "Elvis Antić"
+    ],
+    "fee": "6300.00",
+    "start_date": "2026-07-01",
+    "end_date": "2026-10-29",
+    "language": "hr"
+  },
+  "ugovor-01-scan.pdf": {
+    "parties": [
+      "Načinović d.o.o.",
+      "Elvis Antić"
+    ],
+    "fee": "6300.00",
+    "start_date": "2026-07-01",
+    "end_date": "2026-10-29",
+    "language": "hr"
+  }
+}

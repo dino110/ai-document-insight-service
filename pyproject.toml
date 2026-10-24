@@ -9,7 +9,9 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.143.3",
+    "numpy>=2.5.4",
     "pydantic-settings>=2.16.0",
+    "pymupdf>=1.28,<2",
     "python-multipart>=0.0.32",
     "sqlmodel>=0.0.48",
     "uvicorn[standard]>=0.54.0",
@@ -22,6 +24,8 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "faker>=40.43.0",
+    "fpdf2>=2.8.9",
     "httpx2>=2.13.1",
     "mypy>=2.4.0",
     "pytest>=9.1.1",
@@ -38,10 +42,16 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "N", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]   # assert je u testovima ok
+"scripts/**" = ["S311"]   # random je ovdje za testne podatke, ne za kriptografiju
 
 [tool.mypy]
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
+untyped_calls_exclude = ["pymupdf"]   # PyMuPDF nema tipove na dijelu API-ja (no-untyped-call)
+
+[[tool.mypy.overrides]]
+module = ["easyocr", "easyocr.*"]
+ignore_missing_imports = true         # easyocr lokalno nije instaliran i nema tipove
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
