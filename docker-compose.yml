@@ -1,0 +1,28 @@
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    image: docinsight-api
+    ports:
+      # API_PORT=8001 docker compose up, if a local uvicorn already uses 8000.
+      - "${API_PORT:-8000}:8000"
+    environment:
+      DOCINSIGHT_OCR_ENABLED: "true"
+    volumes:
+      # SQLite database and uploads survive container restarts and rebuilds.
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s  # loading the OCR models takes a few seconds
+
+  # Not started by `docker compose up`. Run with: docker compose run --rm test
+  # Any pytest arguments can be passed instead, e.g.: docker compose run --rm test pytest -q
+  test:
+    build:
+      context: .
+      target: test
+    image: docinsight-test
+    profiles: ["test"]

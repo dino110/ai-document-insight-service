@@ -16,6 +16,8 @@ from docinsight.main import app
 def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the app at a fresh, empty data directory for this test."""
     monkeypatch.setenv("DOCINSIGHT_DATA_DIR", str(tmp_path))
+    # API tests use FakeOcrEngine; never load real OCR models in lifespan, even in Docker.
+    monkeypatch.setenv("DOCINSIGHT_OCR_ENABLED", "false")
     return tmp_path
 
 
