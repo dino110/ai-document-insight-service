@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.143.3",
     "numpy>=2.5.4",
+    "pillow>=13.0.0",
     "pydantic-settings>=2.16.0",
     "pymupdf>=1.28,<2",
     "python-multipart>=0.0.32",
@@ -56,3 +57,8 @@ ignore_missing_imports = true         # easyocr lokalno nije instaliran i nema t
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["slow: treba pravi OCR (Docker)"]
+filterwarnings = [
+    # Emitted by PyMuPDF's SWIG bindings on import, not by our code.
+    "ignore:builtin type .* has no __module__ attribute:DeprecationWarning",
+]

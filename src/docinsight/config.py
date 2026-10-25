@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(default=20, gt=0)
     max_files_per_request: int = Field(default=10, gt=0)
 
+    ocr_enabled: bool = False
+    ocr_languages: list[str] = ["hr", "en"]
+    ocr_min_chars: int = Field(default=30, ge=0)
+    ocr_dpi: int = Field(default=200, gt=0)
+
     @property
     def upload_dir(self) -> Path:
         return self.data_dir / "uploads"

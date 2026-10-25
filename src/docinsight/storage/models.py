@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -25,3 +26,19 @@ class Document(SQLModel, table=True):
     sha256: str = Field(index=True)
     stored_path: str
     created_at: datetime = Field(default_factory=_utcnow)
+    # "pending" until background extraction finishes, then "processed" or "failed".
+    status: str = "pending"
+    page_count: int | None = None
+    error: str | None = None  # short, user-facing reason when status is "failed"
+
+
+class DocumentPage(SQLModel, table=True):
+    """Extracted text of one page of a document."""
+
+    __table_args__ = (UniqueConstraint("document_id", "page_number"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    document_id: str = Field(foreign_key="document.id", index=True)
+    page_number: int  # 1-based
+    text: str
+    method: str  # "text_layer" or "ocr"

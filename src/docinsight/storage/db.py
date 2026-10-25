@@ -20,8 +20,13 @@ def make_engine(url: str) -> Engine:
     return engine
 
 
+def get_engine(request: Request) -> Engine:
+    """The engine created in lifespan, for code that opens its own sessions."""
+    engine: Engine = request.app.state.engine
+    return engine
+
+
 def get_session(request: Request) -> Iterator[Session]:
     """Open one database session per request and close it afterwards."""
-    engine: Engine = request.app.state.engine
-    with Session(engine) as session:
+    with Session(get_engine(request)) as session:
         yield session

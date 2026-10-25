@@ -3,11 +3,13 @@
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, Header
+from fastapi import Depends, Header, Request
+from sqlalchemy import Engine
 from sqlmodel import Session
 
 from docinsight.config import Settings, get_settings
-from docinsight.storage.db import get_session
+from docinsight.extraction.ocr import OcrEngine
+from docinsight.storage.db import get_engine, get_session
 
 # The session id becomes a directory name, so only allow characters that cannot form a path.
 _SESSION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
@@ -27,5 +29,13 @@ def require_session_id(
     return x_session_id
 
 
+def get_ocr_engine(request: Request) -> OcrEngine:
+    """The OCR engine created once in lifespan; tests replace it via dependency_overrides."""
+    ocr: OcrEngine = request.app.state.ocr
+    return ocr
+
+
 DbSession = Annotated[Session, Depends(get_session)]
+DbEngine = Annotated[Engine, Depends(get_engine)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+OcrDep = Annotated[OcrEngine, Depends(get_ocr_engine)]
