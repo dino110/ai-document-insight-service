@@ -38,6 +38,15 @@ ml = [
     "torch>=2.6 ; sys_platform == 'linux'",
     "torchvision>=0.29.1 ; sys_platform == 'linux'",
 ]
+ui = [
+    "httpx2>=2.13.1",
+    "streamlit>=1.66.1",
+]
+
+[tool.uv]
+# Local `uv sync`/`uv run` include the UI. Docker images pick groups explicitly
+# with --no-default-groups, so the API image never gets Streamlit.
+default-groups = ["dev", "ui"]
 
 # PyTorch from PyPI is a CUDA build on Linux (several GB of nvidia-* wheels).
 # The CPU-only index is used for torch/torchvision and nothing else (explicit = true).
@@ -63,7 +72,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "N", "SIM", "RUF"]
 
 [tool.mypy]
 strict = true
-files = ["src", "tests", "scripts"]
+files = ["src", "tests", "scripts", "ui"]
 untyped_calls_exclude = ["pymupdf"]   # PyMuPDF nema tipove na dijelu API-ja (no-untyped-call)
 
 [[tool.mypy.overrides]]
@@ -72,6 +81,7 @@ ignore_missing_imports = true         # easyocr lokalno nije instaliran i nema t
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["ui"]   # tests can `import api_client`, like Streamlit does
 addopts = "-ra"
 markers = ["slow: treba pravi OCR (Docker)"]
 filterwarnings = [

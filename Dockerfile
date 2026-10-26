@@ -19,7 +19,7 @@ WORKDIR /app
 # 1. Dependencies only: this heavy layer is rebuilt only when pyproject.toml or uv.lock change.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --group ml --no-install-project
+    uv sync --frozen --no-default-groups --group ml --no-install-project
 
 # 2. OCR models (detector + Latin recognizer), so the first request does not download them.
 RUN python -c "import easyocr; easyocr.Reader(['hr', 'en'], gpu=False)"
@@ -28,7 +28,7 @@ RUN python -c "import easyocr; easyocr.Reader(['hr', 'en'], gpu=False)"
 COPY README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --group ml
+    uv sync --frozen --no-default-groups --group ml
 
 
 # Tests inside the container, including the slow ones that need real OCR.
@@ -36,7 +36,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM base AS test
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --group ml
+    uv sync --frozen --no-default-groups --group dev --group ml
 COPY tests ./tests
 COPY sample_docs ./sample_docs
 # pytest directly, not `uv run`: that would re-sync to the default groups and drop `ml`.
