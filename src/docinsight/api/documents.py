@@ -106,7 +106,10 @@ def upload_documents(
         raise
 
     # Scheduled only after the commit, so the task is guaranteed to find the rows.
-    for document in documents:
+    # Cheap work first: digital PDFs usually need no OCR; images always do.
+    for document in sorted(
+        documents, key=lambda d: (d.content_type != "application/pdf", d.size_bytes)
+    ):
         background_tasks.add_task(process_document, document.id, engine, ocr, settings)
 
     return UploadResponse(
