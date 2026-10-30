@@ -5,13 +5,15 @@ from pathlib import Path
 import pytest
 from factories import FAKE_OCR_TEXT, FakeOcrEngine, make_image_pdf, make_png, make_text_pdf
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 
 from docinsight.api.deps import get_ocr_engine
 from docinsight.config import get_settings
 from docinsight.extraction.ocr import UnavailableOcrEngine
+from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.main import app
 from docinsight.processing import process_document
+from docinsight.storage.models import DocumentChunk
 
 PDF = b"%PDF-1.4\n1 0 obj << >> endobj\n%%EOF\n"
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
@@ -328,7 +330,7 @@ def test_processing_a_deleted_document_is_skipped(client: TestClient) -> None:
     settings = get_settings()
 
     # Must not raise, e.g. when the document was removed before the task ran.
-    process_document("no-such-id", app.state.engine, FakeOcrEngine(), settings)
+    process_document("no-such-id", app.state.engine, FakeOcrEngine(), HashingEmbedder(), settings)
 
 
 def test_broken_pdf_is_marked_failed(client: TestClient) -> None:
@@ -340,3 +342,57 @@ def test_broken_pdf_is_marked_failed(client: TestClient) -> None:
     assert detail["status"] == "failed"
     assert detail["error"] == "The PDF file could not be read."
     assert detail["pages"] == []
+
+
+# --- Indexing ---
+
+
+def _chunks(document_id: str) -> list[DocumentChunk]:
+    with Session(app.state.engine) as session:
+        statement = select(DocumentChunk).where(DocumentChunk.document_id == document_id)
+        return list(session.exec(statement.order_by(col(DocumentChunk.chunk_index))))
+
+
+def test_processed_document_is_indexed_per_page(
+    client: TestClient, embedder: HashingEmbedder
+) -> None:
+    content = make_text_pdf("Invoice 2026-001. Total amount due: 1.575,00 EUR", pages=2)
+    document_id = _upload_one(client, "invoice.pdf", content)
+
+    chunks = _chunks(document_id)
+
+    assert _detail(client, document_id)["status"] == "processed"
+    assert [chunk.page_number for chunk in chunks] == [1, 2]
+    assert [chunk.chunk_index for chunk in chunks] == [0, 1]
+    assert {chunk.owner_id for chunk in chunks} == {"owner"}
+    assert {chunk.embedding_model for chunk in chunks} == {embedder.name}
+    assert "1.575,00 EUR" in chunks[0].text
+    assert len(chunks[0].embedding) == embedder.dim * 4  # float32
+
+
+def test_document_without_text_is_processed_with_no_chunks(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, fake_ocr: FakeOcrEngine
+) -> None:
+    monkeypatch.setattr(fake_ocr, "text", "   ")  # a blank scan
+    document_id = _upload_one(client, "blank.png", make_png())
+
+    assert _detail(client, document_id)["status"] == "processed"
+    assert _chunks(document_id) == []
+
+
+def test_embedding_error_marks_document_failed(
+    client: TestClient, embedder: HashingEmbedder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def explode(texts: list[str]) -> object:
+        raise RuntimeError("upstream said: sk-secret is invalid")
+
+    monkeypatch.setattr(embedder, "embed_documents", explode)
+    document_id = _upload_one(client, "invoice.pdf", make_text_pdf("Some text worth indexing."))
+
+    detail = _detail(client, document_id)
+
+    assert detail["status"] == "failed"
+    assert detail["error"] == "Indexing failed."  # never the raw exception text
+    # Rolled back together: no pages and no chunks of a half-processed document.
+    assert detail["pages"] == []
+    assert _chunks(document_id) == []
