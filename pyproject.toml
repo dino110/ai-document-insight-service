@@ -8,8 +8,10 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "faiss-cpu>=1.15.1",
     "fastapi>=0.143.3",
     "numpy>=2.5.4",
+    "openai>=3.41.0",
     "pillow>=13.0.0",
     "pydantic-settings>=2.16.0",
     "pymupdf>=1.28,<2",
@@ -73,11 +75,12 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "N", "SIM", "RUF"]
 [tool.mypy]
 strict = true
 files = ["src", "tests", "scripts", "ui"]
-untyped_calls_exclude = ["pymupdf"]   # PyMuPDF nema tipove na dijelu API-ja (no-untyped-call)
+untyped_calls_exclude = ["pymupdf"]   # PyMuPDF has no type hints on parts of its API (no-untyped-call)
 
 [[tool.mypy.overrides]]
+# Not installed locally (Linux-only `ml` group). faiss needs no override: it ships its own stubs.
 module = ["easyocr", "easyocr.*"]
-ignore_missing_imports = true         # easyocr lokalno nije instaliran i nema tipove
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
