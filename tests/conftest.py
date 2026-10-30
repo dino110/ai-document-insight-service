@@ -7,8 +7,9 @@ import pytest
 from factories import FAKE_OCR_TEXT, FakeOcrEngine
 from fastapi.testclient import TestClient
 
-from docinsight.api.deps import get_ocr_engine
+from docinsight.api.deps import get_embedder, get_ocr_engine
 from docinsight.config import get_settings
+from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.main import app
 
 
@@ -36,10 +37,18 @@ def fake_ocr() -> FakeOcrEngine:
 
 
 @pytest.fixture
-def client(data_dir: Path, fake_ocr: FakeOcrEngine) -> Iterator[TestClient]:
-    """A test client with lifespan running against an isolated data directory and fake OCR."""
+def embedder() -> HashingEmbedder:
+    return HashingEmbedder()
+
+
+@pytest.fixture
+def client(
+    data_dir: Path, fake_ocr: FakeOcrEngine, embedder: HashingEmbedder
+) -> Iterator[TestClient]:
+    """A test client against an isolated data directory, with fake OCR and local embeddings."""
     get_settings.cache_clear()
     app.dependency_overrides[get_ocr_engine] = lambda: fake_ocr
+    app.dependency_overrides[get_embedder] = lambda: embedder
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

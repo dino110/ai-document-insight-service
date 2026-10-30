@@ -11,6 +11,7 @@ from docinsight import __version__
 from docinsight.api import documents, health
 from docinsight.config import get_settings
 from docinsight.extraction.ocr import create_ocr_engine
+from docinsight.indexing.embeddings import create_embedder
 from docinsight.storage.db import make_engine
 
 
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     # Loading EasyOCR models takes seconds; keep the event loop free while it happens.
     app.state.ocr = await run_in_threadpool(create_ocr_engine, settings)
+    app.state.embedder = create_embedder(settings)  # cheap: an API client, no model to load
     yield
     engine.dispose()
 
