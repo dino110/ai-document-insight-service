@@ -1,25 +1,13 @@
 """Tests for vector search over stored chunks, with the local HashingEmbedder (no OpenAI)."""
 
-from collections.abc import Iterator
-from pathlib import Path
-
 import pytest
+from factories import add_indexed_document
 from sqlmodel import Session
 
-from docinsight.config import Settings
 from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.indexing.search import ScoredChunk, search_chunks
-from docinsight.storage.db import make_engine
-from docinsight.storage.models import Document, DocumentChunk
 
 EMBEDDER = HashingEmbedder()
-
-
-@pytest.fixture
-def session(tmp_path: Path) -> Iterator[Session]:
-    engine = make_engine(Settings(data_dir=tmp_path).database_url)
-    with Session(engine) as session:
-        yield session
 
 
 @pytest.fixture(params=[True, False], ids=["faiss", "numpy"])
@@ -27,43 +15,6 @@ def use_faiss(request: pytest.FixtureRequest) -> bool:
     """Every search test runs against both implementations."""
     value: bool = request.param
     return value
-
-
-def add_document(
-    session: Session,
-    texts: list[str],
-    *,
-    owner_id: str = "owner",
-    filename: str = "racun.pdf",
-    status: str = "processed",
-    model: str = EMBEDDER.name,
-) -> str:
-    """Store a document with one chunk per text, the n-th text on page n."""
-    document = Document(
-        owner_id=owner_id,
-        filename=filename,
-        content_type="application/pdf",
-        size_bytes=1,
-        sha256="0" * 64,
-        stored_path="unused",
-        status=status,
-    )
-    session.add(document)
-    vectors = EMBEDDER.embed_documents(texts)
-    session.add_all(
-        DocumentChunk(
-            document_id=document.id,
-            owner_id=owner_id,
-            page_number=i + 1,
-            chunk_index=i,
-            text=text,
-            embedding=vector.tobytes(),
-            embedding_model=model,
-        )
-        for i, (text, vector) in enumerate(zip(texts, vectors, strict=True))
-    )
-    session.commit()
-    return document.id
 
 
 def search(
@@ -94,7 +45,7 @@ INVOICE = [
 
 
 def test_best_matching_chunk_comes_first(session: Session, use_faiss: bool) -> None:
-    document_id = add_document(session, INVOICE)
+    document_id = add_indexed_document(session, INVOICE, EMBEDDER)
 
     results = search(session, "Koji je datum dospijeća?", use_faiss)
 
@@ -106,15 +57,17 @@ def test_best_matching_chunk_comes_first(session: Session, use_faiss: bool) -> N
 
 
 def test_top_k_larger_than_number_of_chunks(session: Session, use_faiss: bool) -> None:
-    add_document(session, INVOICE)
+    add_indexed_document(session, INVOICE, EMBEDDER)
 
     assert len(search(session, "račun", use_faiss, top_k=20)) == 3
     assert len(search(session, "račun", use_faiss, top_k=2)) == 2
 
 
 def test_other_owners_chunks_are_never_returned(session: Session, use_faiss: bool) -> None:
-    add_document(session, ["Tajni ugovor o djelu, naknada 9.000,00 EUR"], owner_id="someone-else")
-    add_document(session, INVOICE)
+    add_indexed_document(
+        session, ["Tajni ugovor o djelu, naknada 9.000,00 EUR"], EMBEDDER, owner_id="someone-else"
+    )
+    add_indexed_document(session, INVOICE, EMBEDDER)
 
     results = search(session, "ugovor o djelu naknada", use_faiss)
 
@@ -123,20 +76,22 @@ def test_other_owners_chunks_are_never_returned(session: Session, use_faiss: boo
 
 
 def test_chunks_of_another_model_are_ignored(session: Session, use_faiss: bool) -> None:
-    add_document(session, ["Datum dospijeća: 1.1.2027."], filename="old.pdf", model="old-model")
+    add_indexed_document(
+        session, ["Datum dospijeća: 1.1.2027."], EMBEDDER, filename="old.pdf", model="old-model"
+    )
 
     assert search(session, "datum dospijeća", use_faiss) == []
 
 
 def test_documents_that_are_not_processed_are_ignored(session: Session, use_faiss: bool) -> None:
-    add_document(session, ["Datum dospijeća: 1.1.2027."], status="failed")
+    add_indexed_document(session, ["Datum dospijeća: 1.1.2027."], EMBEDDER, status="failed")
 
     assert search(session, "datum dospijeća", use_faiss) == []
 
 
 def test_document_ids_limit_the_search(session: Session, use_faiss: bool) -> None:
-    add_document(session, INVOICE, filename="a.pdf")
-    other = add_document(session, INVOICE, filename="b.pdf")
+    add_indexed_document(session, INVOICE, EMBEDDER, filename="a.pdf")
+    other = add_indexed_document(session, INVOICE, EMBEDDER, filename="b.pdf")
 
     results = search(session, "datum dospijeća", use_faiss, document_ids=[other])
 
@@ -148,8 +103,10 @@ def test_no_chunks_returns_empty_list(session: Session, use_faiss: bool) -> None
 
 
 def test_faiss_and_numpy_find_the_same_chunks(session: Session) -> None:
-    add_document(session, INVOICE)
-    add_document(session, ["Ugovor o djelu, naknada 2.000,00 EUR", "Rok: 31.12.2026."])
+    add_indexed_document(session, INVOICE, EMBEDDER)
+    add_indexed_document(
+        session, ["Ugovor o djelu, naknada 2.000,00 EUR", "Rok: 31.12.2026."], EMBEDDER
+    )
 
     with_faiss = search(session, "Koliko iznosi naknada za platiti?", use_faiss=True)
     with_numpy = search(session, "Koliko iznosi naknada za platiti?", use_faiss=False)
