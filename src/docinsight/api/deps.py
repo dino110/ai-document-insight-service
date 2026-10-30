@@ -10,6 +10,7 @@ from sqlmodel import Session
 from docinsight.config import Settings, get_settings
 from docinsight.extraction.ocr import OcrEngine
 from docinsight.indexing.embeddings import Embedder
+from docinsight.qa.generator import AnswerGenerator
 from docinsight.storage.db import get_engine, get_session
 
 # The session id becomes a directory name, so only allow characters that cannot form a path.
@@ -42,8 +43,15 @@ def get_embedder(request: Request) -> Embedder:
     return embedder
 
 
+def get_generator(request: Request) -> AnswerGenerator:
+    """The LLM generator created once in lifespan; tests replace it via dependency_overrides."""
+    generator: AnswerGenerator = request.app.state.generator
+    return generator
+
+
 DbSession = Annotated[Session, Depends(get_session)]
 DbEngine = Annotated[Engine, Depends(get_engine)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 OcrDep = Annotated[OcrEngine, Depends(get_ocr_engine)]
 EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
+GeneratorDep = Annotated[AnswerGenerator, Depends(get_generator)]

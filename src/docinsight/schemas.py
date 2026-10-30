@@ -1,9 +1,9 @@
 """Pydantic models for API requests and responses."""
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 DocumentStatus = Literal["pending", "processed", "failed"]
 
@@ -57,3 +57,34 @@ class UploadResponse(BaseModel):
 
     session_id: str
     documents: list[DocumentOut]
+
+
+class AskRequest(BaseModel):
+    """A question about the caller's processed documents."""
+
+    question: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)
+    ]
+    # None searches all of the caller's documents; ids of other sessions simply match nothing.
+    document_ids: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    top_k: int | None = Field(default=None, ge=1, le=20)
+
+
+class SourceOut(BaseModel):
+    """A chunk the answer cites: where it comes from and the start of its text."""
+
+    document_id: str
+    filename: str
+    page_number: int
+    snippet: str
+    score: float
+
+
+class AskResponse(BaseModel):
+    """The answer, its sources and how long retrieval and generation took."""
+
+    answer: str
+    found: bool
+    sources: list[SourceOut]
+    model: str
+    timings_ms: dict[str, float]

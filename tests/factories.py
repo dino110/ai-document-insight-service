@@ -7,6 +7,12 @@ import pymupdf
 from fpdf import FPDF
 from numpy.typing import NDArray
 from PIL import Image, ImageDraw
+from sqlmodel import Session
+
+from docinsight.indexing.embeddings import HashingEmbedder
+from docinsight.qa.generator import LlmAnswer
+from docinsight.qa.prompts import ContextChunk
+from docinsight.storage.models import Document, DocumentChunk
 
 FAKE_OCR_TEXT = "Scanned invoice 2026-001, total 1.575,00 EUR"
 
@@ -53,3 +59,55 @@ class FakeOcrEngine:
         self.calls += 1
         self.shapes.append(image.shape)
         return self.text
+
+
+class FakeGenerator:
+    """Satisfies the AnswerGenerator protocol: returns a fixed answer and records its input."""
+
+    model = "fake-llm"
+
+    def __init__(self, answer: LlmAnswer | None = None) -> None:
+        self.answer = answer or LlmAnswer(answer="Odgovor [1].", found=True, citations=[1])
+        self.calls: list[tuple[str, list[ContextChunk]]] = []
+
+    def generate(self, question: str, contexts: list[ContextChunk]) -> LlmAnswer:
+        self.calls.append((question, contexts))
+        return self.answer
+
+
+def add_indexed_document(
+    session: Session,
+    texts: list[str],
+    embedder: HashingEmbedder,
+    *,
+    owner_id: str = "owner",
+    filename: str = "racun.pdf",
+    status: str = "processed",
+    model: str | None = None,
+) -> str:
+    """Store a document with one chunk per text, the n-th text on page n; return its id."""
+    document = Document(
+        owner_id=owner_id,
+        filename=filename,
+        content_type="application/pdf",
+        size_bytes=1,
+        sha256="0" * 64,
+        stored_path="unused",
+        status=status,
+    )
+    session.add(document)
+    vectors = embedder.embed_documents(texts)
+    session.add_all(
+        DocumentChunk(
+            document_id=document.id,
+            owner_id=owner_id,
+            page_number=i + 1,
+            chunk_index=i,
+            text=text,
+            embedding=vector.tobytes(),
+            embedding_model=model or embedder.name,
+        )
+        for i, (text, vector) in enumerate(zip(texts, vectors, strict=True))
+    )
+    session.commit()
+    return document.id

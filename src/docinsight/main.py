@@ -8,10 +8,11 @@ from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 
 from docinsight import __version__
-from docinsight.api import documents, health
+from docinsight.api import ask, documents, health
 from docinsight.config import get_settings
 from docinsight.extraction.ocr import create_ocr_engine
 from docinsight.indexing.embeddings import create_embedder
+from docinsight.qa.generator import create_generator
 from docinsight.storage.db import make_engine
 
 
@@ -25,7 +26,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     # Loading EasyOCR models takes seconds; keep the event loop free while it happens.
     app.state.ocr = await run_in_threadpool(create_ocr_engine, settings)
-    app.state.embedder = create_embedder(settings)  # cheap: an API client, no model to load
+    # Cheap: API clients, no models to load.
+    app.state.embedder = create_embedder(settings)
+    app.state.generator = create_generator(settings)
     yield
     engine.dispose()
 
@@ -33,3 +36,4 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Document Insight Service", version=__version__, lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(documents.router)
+app.include_router(ask.router)
