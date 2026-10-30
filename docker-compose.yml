@@ -18,6 +18,20 @@ services:
       timeout: 5s
       start_period: 60s  # loading the OCR models takes a few seconds
 
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    image: docinsight-ui
+    ports:
+      - "8501:8501"
+    environment:
+      # Inside a container "localhost" is the container itself; services reach each other by name.
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy  # wait until the API (and its OCR models) is ready
+
   # Not started by `docker compose up`. Run with: docker compose run --rm test
   # Any pytest arguments can be passed instead, e.g.: docker compose run --rm test pytest -q
   test:
