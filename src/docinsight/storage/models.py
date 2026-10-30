@@ -42,3 +42,20 @@ class DocumentPage(SQLModel, table=True):
     page_number: int  # 1-based
     text: str
     method: str  # "text_layer" or "ocr"
+
+
+class DocumentChunk(SQLModel, table=True):
+    """A piece of one page with its embedding: the unit that search finds and answers cite."""
+
+    __table_args__ = (UniqueConstraint("document_id", "chunk_index"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    document_id: str = Field(foreign_key="document.id", index=True)
+    # Copied from Document, so one owner's chunks are selected by an index on this table.
+    owner_id: str = Field(index=True)
+    page_number: int  # 1-based, the page that a citation points to
+    chunk_index: int  # position in the document
+    text: str
+    embedding: bytes  # float32 vector as raw bytes: array.tobytes() / np.frombuffer()
+    # Vectors of different models are not comparable; search only uses the current one.
+    embedding_model: str = Field(index=True)

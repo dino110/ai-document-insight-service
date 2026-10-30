@@ -12,6 +12,15 @@ from docinsight.config import get_settings
 from docinsight.main import app
 
 
+@pytest.fixture(autouse=True)
+def _no_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ignore the developer's real key from .env: tests never call OpenAI by accident.
+
+    An environment variable wins over .env, and an empty key is read as "no key".
+    """
+    monkeypatch.setenv("DOCINSIGHT_OPENAI_API_KEY", "")
+
+
 @pytest.fixture
 def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the app at a fresh, empty data directory for this test."""
