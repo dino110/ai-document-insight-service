@@ -10,6 +10,8 @@ from typing import Literal, TypedDict
 import httpx2
 
 SESSION_HEADER = "X-Session-ID"
+# /ask waits for the embedding and LLM calls (and the SDK's retries), unlike the other calls.
+ASK_TIMEOUT_S = 90.0
 
 DocumentStatus = Literal["pending", "processed", "failed"]
 
@@ -38,6 +40,22 @@ class DocumentDetail(DocumentOut):
 class UploadResponse(TypedDict):
     session_id: str
     documents: list[DocumentOut]
+
+
+class SourceOut(TypedDict):
+    document_id: str
+    filename: str
+    page_number: int
+    snippet: str  # start of the cited chunk
+    score: float
+
+
+class AskResponse(TypedDict):
+    answer: str
+    found: bool  # False: the documents do not contain the answer (and sources is empty)
+    sources: list[SourceOut]
+    model: str
+    timings_ms: dict[str, float]  # "retrieval", "generation"
 
 
 # (filename, content, content type), as handed over by st.file_uploader.
@@ -84,6 +102,20 @@ def get_document(client: httpx2.Client, session_id: str, document_id: str) -> Do
     return data
 
 
+def ask(client: httpx2.Client, session_id: str, question: str) -> AskResponse:
+    """Ask a question about the session's processed documents."""
+    response = _send(
+        client,
+        "POST",
+        "/ask",
+        headers={SESSION_HEADER: session_id},
+        json={"question": question},
+        timeout=ASK_TIMEOUT_S,
+    )
+    data: AskResponse = response.json()
+    return data
+
+
 def _send(
     client: httpx2.Client,
     method: str,
@@ -91,10 +123,20 @@ def _send(
     *,
     headers: dict[str, str],
     files: list[tuple[str, UploadFile]] | None = None,
+    json: dict[str, str] | None = None,
+    timeout: float | None = None,
 ) -> httpx2.Response:
     """Send a request and turn every failure into ApiError."""
     try:
-        response = client.request(method, url, headers=headers, files=files)
+        response = client.request(
+            method,
+            url,
+            headers=headers,
+            files=files,
+            json=json,
+            # None keeps the client's default timeout.
+            timeout=timeout if timeout is not None else client.timeout,
+        )
     except httpx2.TransportError as exc:
         raise ApiError(None, f"API nije dostupan na {client.base_url}") from exc
     if response.status_code >= 400:

@@ -7,12 +7,16 @@ lives in st.session_state (per browser tab) and st.query_params (the URL, surviv
 """
 
 import os
+from typing import Literal, TypedDict
 
 import httpx2
 import streamlit as st
 from api_client import (
     ApiError,
+    AskResponse,
     DocumentOut,
+    SourceOut,
+    ask,
     get_document,
     list_documents,
     make_client,
@@ -23,6 +27,14 @@ API_URL = os.environ.get("API_URL", "http://localhost:8000")
 
 STATUS_LABELS = {"pending": "u obradi", "processed": "obrađen", "failed": "greška"}
 METHOD_LABELS = {"text_layer": "tekstualni sloj", "ocr": "OCR"}
+
+
+class ChatMessage(TypedDict):
+    role: Literal["user", "assistant"]
+    content: str
+    sources: list[SourceOut]
+    caption: str  # model and timings under an answer, "" otherwise
+    error: bool  # the API call failed; content is the error message
 
 
 @st.cache_resource
@@ -36,12 +48,17 @@ def init_state() -> None:
         st.session_state.session_id = st.query_params.get("session")
     if "uploader_key" not in st.session_state:
         st.session_state.uploader_key = 0
+    if "messages" not in st.session_state:
+        # A plain list would be empty again on the next rerun: every interaction
+        # runs this script from the top, only st.session_state survives.
+        st.session_state.messages = []
 
 
 def set_session(session_id: str | None) -> None:
     """Keep the session in both places: session_state for reruns, the URL for refreshes."""
     st.session_state.session_id = session_id
     st.session_state.processed_ids = ()
+    st.session_state.messages = []  # answers are about the previous session's documents
     if session_id:
         st.query_params["session"] = session_id
     else:
@@ -137,6 +154,69 @@ def document_detail(session_id: str, documents: list[DocumentOut]) -> None:
             st.text(page["text"] or "(prazna stranica)")
 
 
+def show_message(message: ChatMessage) -> None:
+    with st.chat_message(message["role"]):
+        if message["error"]:
+            st.error(message["content"])
+            return
+        st.markdown(_no_latex(message["content"]))
+        for source in message["sources"]:
+            label = f"{source['filename']}, str. {source['page_number']}"
+            with st.expander(label, icon=":material/description:"):
+                st.text(source["snippet"])  # document text, not markup
+        if message["caption"]:
+            st.caption(message["caption"])
+
+
+def _no_latex(text: str) -> str:
+    """Markdown treats text between two "$" as LaTeX: "$100 or $200" would be mangled."""
+    return text.replace("$", "\\$")
+
+
+def _answer_caption(result: AskResponse) -> str:
+    timings = result["timings_ms"]
+    return (
+        f"{result['model']} · pretraga {timings.get('retrieval', 0) / 1000:.1f} s"
+        f" · odgovor {timings.get('generation', 0) / 1000:.1f} s"
+    )
+
+
+def chat(session_id: str) -> None:
+    for message in st.session_state.messages:
+        show_message(message)
+
+    ready = bool(st.session_state.processed_ids)
+    question = st.chat_input(
+        "Pitaj nešto o dokumentima" if ready else "Pitanja su moguća kad je dokument obrađen",
+        disabled=not ready,
+        max_chars=1000,  # same limit as the API
+        submit_mode="disable",  # no second question while the first is being answered
+    )
+    if not question:
+        return
+
+    asked = ChatMessage(role="user", content=question, sources=[], caption="", error=False)
+    st.session_state.messages.append(asked)
+    show_message(asked)
+    with st.spinner("Tražim odgovor u dokumentima…"):
+        try:
+            result = ask(get_client(), session_id, question)
+        except ApiError as exc:
+            reply = ChatMessage(
+                role="assistant", content=exc.detail, sources=[], caption="", error=True
+            )
+        else:
+            reply = ChatMessage(
+                role="assistant",
+                content=result["answer"],
+                sources=result["sources"],
+                caption=_answer_caption(result),
+                error=False,
+            )
+    st.session_state.messages.append(reply)
+    show_message(reply)
+
+
 def main() -> None:
     st.set_page_config(page_title="Document Insight", layout="wide")
     init_state()
@@ -161,8 +241,8 @@ def main() -> None:
     st.subheader("Tekst po stranicama")
     document_detail(session_id, documents)
 
-    st.divider()
-    st.caption("Pitanja o dokumentima dolaze nakon faze 4.")
+    st.subheader("Pitanja")
+    chat(session_id)
 
 
 if __name__ == "__main__":
