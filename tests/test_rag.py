@@ -1,11 +1,15 @@
 """Tests for the RAG flow with a fake LLM and the local HashingEmbedder."""
 
+from typing import Any
+
 import pytest
 from factories import FakeGenerator, add_indexed_document
 from sqlmodel import Session
 
 from docinsight.config import Settings
 from docinsight.indexing.embeddings import EmbeddingError, HashingEmbedder
+from docinsight.indexing.search import ScoredChunk, search_chunks
+from docinsight.qa import rag as rag_module
 from docinsight.qa.generator import LlmAnswer, LlmRequestError
 from docinsight.qa.rag import NoDocumentsError, RagResult, answer_question
 
@@ -108,3 +112,24 @@ def test_embedding_error_becomes_llm_request_error(
 
     with pytest.raises(LlmRequestError):
         ask(session, FakeGenerator())
+
+
+def test_dense_mode_does_not_use_the_question_text(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    add_indexed_document(session, INVOICE, EMBEDDER)
+    received: list[str | None] = []
+
+    # Any: a spy that forwards whatever rag passes on to the real function.
+    def spy(*args: Any, **kwargs: Any) -> list[ScoredChunk]:
+        received.append(kwargs.get("query_text"))
+        return search_chunks(*args, **kwargs)
+
+    monkeypatch.setattr(rag_module, "search_chunks", spy)
+    generator = FakeGenerator()
+
+    answer_question("Tko je kupac?", "owner", session, EMBEDDER, generator, SETTINGS)
+    dense = Settings(top_k=3, retrieval_mode="dense")
+    answer_question("Tko je kupac?", "owner", session, EMBEDDER, generator, dense)
+
+    assert received == ["Tko je kupac?", None]
