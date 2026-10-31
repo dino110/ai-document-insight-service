@@ -1,8 +1,9 @@
 """Named entities in answers: rules for fixed formats, a spaCy model for names.
 
-Rules (``patterns.py``) find OIBs, IBANs, amounts and dates with check digits; a
-statistical model would only guess them. spaCy finds people, organisations and places,
-which no rule can. When both mark the same text, the rule wins: an OIB is never "ORG".
+Rules (``patterns.py``) find OIBs, IBANs, amounts and dates with check digits, and
+companies by their legal form ("d.o.o."); a statistical model would only guess them.
+spaCy finds people, other organisations and places, which no rule can. When both mark
+the same text, the rule wins: an OIB is never "ORG".
 """
 
 import logging
@@ -13,7 +14,14 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from docinsight.config import Settings
-from docinsight.nlp.patterns import Span, find_amounts, find_dates, find_ibans, find_oibs
+from docinsight.nlp.patterns import (
+    Span,
+    find_amounts,
+    find_companies,
+    find_dates,
+    find_ibans,
+    find_oibs,
+)
 from docinsight.qa.guard import Language
 
 logger = logging.getLogger(__name__)
@@ -43,6 +51,8 @@ _RULES: list[tuple[EntityLabel, Callable[[str], list[Span]]]] = [
     ("OIB", find_oibs),
     ("MONEY", find_amounts),
     ("DATE", find_dates),
+    # A legal form makes a name a company; the models often call "Horvat d.o.o." a person.
+    ("ORG", find_companies),
 ]
 
 # Model labels we keep. Croatian: PER, DERIV_PER (adjectives from names, "Kovačev"), ORG,

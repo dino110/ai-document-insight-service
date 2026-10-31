@@ -82,6 +82,7 @@ def test_rules_find_amount_oib_iban_and_date() -> None:
 
     assert labelled(entities) == [
         ("1.575,00 EUR", "MONEY"),
+        ("Horvat d.o.o.", "ORG"),
         ("99083863799", "OIB"),
         ("HR72 2360 0004 2751 7979 0", "IBAN"),
         ("29.03.2026.", "DATE"),
@@ -137,7 +138,8 @@ def test_rule_wins_when_the_model_tags_the_same_text(tags: dict[str, str]) -> No
 
     assert ("99083863799", "OIB") in labelled(entities)
     assert ("1.575,00 EUR", "MONEY") in labelled(entities)
-    assert not [e for e in entities if e.label == "ORG"]
+    # The only organisation is the company found by its legal form, not the model's spans.
+    assert [e.text for e in entities if e.label == "ORG"] == ["Horvat d.o.o."]
 
 
 @pytest.mark.parametrize(

@@ -1,4 +1,4 @@
-"""Tests for the rule-based patterns: OIB, IBAN, dates and amounts."""
+"""Tests for the rule-based patterns: OIB, IBAN, dates, amounts and company names."""
 
 import json
 from datetime import date
@@ -9,6 +9,7 @@ import pytest
 
 from docinsight.nlp.patterns import (
     find_amounts,
+    find_companies,
     find_dates,
     find_ibans,
     find_oibs,
@@ -213,3 +214,57 @@ def test_normalize_amount_formats(text: str, expected: str) -> None:
 def test_normalize_amount_without_a_number_raises() -> None:
     with pytest.raises(ValueError, match="no amount"):
         normalize_amount("EUR")
+
+
+# --- Companies ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "companies"),
+    [
+        # Answers from the real API (step 4), where the models got these wrong.
+        ("Račun 2026-001 izdao je Car d.o.o.; OIB je 28196001332", ["Car d.o.o."]),
+        ("Strane su Načinović d.o.o. (Naručitelj) i Elvis Antić", ["Načinović d.o.o."]),
+        ("The parties are Šalić d.o.o., the Client", ["Šalić d.o.o."]),
+        # Other forms, several words, connectors and a dropped final dot.
+        ("Kupac je Horvat i Sinovi d.d. iz Splita", ["Horvat i Sinovi d.d."]),
+        ("Izdavatelj: Kovač j.d.o.o., Zagreb", ["Kovač j.d.o.o."]),
+        ("Ortaci su Babić j.t.d. i Perić k.d.", ["Babić j.t.d.", "Perić k.d."]),
+        ("Izdao je Car d.o.o", ["Car d.o.o"]),
+        ("AGRO-PLUS d.o.o. dostavlja", ["AGRO-PLUS d.o.o."]),
+        ("Acme, Inc. and Foo & Bar GmbH, Baz Ltd and Qux LLC",
+         ["Acme, Inc.", "Foo & Bar GmbH", "Baz Ltd", "Qux LLC"]),
+    ],
+)  # fmt: skip
+def test_find_companies(text: str, companies: list[str]) -> None:
+    assert found(text, find_companies(text)) == companies
+
+
+@pytest.mark.parametrize(
+    ("text", "companies"),
+    [
+        ("Kupac Horvat d.o.o. plaća", ["Horvat d.o.o."]),
+        ("Tvrtka Horvat i Sinovi d.d.", ["Horvat i Sinovi d.d."]),
+        ("The Client Acme Ltd. pays", ["Acme Ltd."]),
+        ("Kupac i Prodavatelj Horvat d.o.o.", ["Horvat d.o.o."]),  # a connector between roles
+    ],
+)
+def test_role_words_before_the_name_are_left_out(text: str, companies: list[str]) -> None:
+    assert found(text, find_companies(text)) == companies
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Tvrtka d.o.o. je osnovana",  # only a role word before the form
+        "osnovano je društvo s ograničenom odgovornošću d.o.o.",  # lowercase words
+        "horvat d.o.o.",  # a name starts with a capital letter
+        "Horvat d.o.offline",  # the form must end the word
+        "HorvatAG je",  # the form must be a separate word
+        # A name must start a word: no "Kupi d.o.o." out of "eKupi d.o.o." (missed instead).
+        "eKupi d.o.o.",
+        "Iznos plaća Horvat.",  # no legal form
+    ],
+)
+def test_not_a_company(text: str) -> None:
+    assert find_companies(text) == []

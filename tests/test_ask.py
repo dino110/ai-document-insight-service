@@ -393,6 +393,7 @@ def test_found_answer_has_entities_with_offsets(
     assert body["answer"] == answer
     assert [(e["text"], e["label"]) for e in body["entities"]] == [
         ("1.575,00 EUR", "MONEY"),
+        ("Horvat d.o.o.", "ORG"),
         ("99083863799", "OIB"),
     ]
     assert all(answer[e["start"] : e["end"]] == e["text"] for e in body["entities"])

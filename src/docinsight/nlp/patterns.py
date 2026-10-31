@@ -1,4 +1,4 @@
-"""Rules for entities with a fixed format: OIB, IBAN, dates and amounts of money.
+"""Rules for entities with a fixed format: OIB, IBAN, dates, amounts and company names.
 
 A regex only checks the shape, so OIBs and IBANs must also pass their check digits and a
 date must exist in the calendar. Every ``find_*`` function returns ``(start, end)`` spans
@@ -34,6 +34,27 @@ _MONEY = re.compile(
     rf"|(?<![\d.,]){_AMOUNT}[ \u00a0]?{_CURRENCY}"  # "1.575,00 EUR"
 )
 _AMOUNT_ONLY = re.compile(rf"(?<![\d.,]){_AMOUNT}(?!\d)")
+
+# A company is a name followed by its legal form: "Horvat d.o.o.", "Horvat i Sinovi d.d.",
+# "Acme, Inc.". The name is 1-4 capitalised words, optionally joined by "i", "and" or "&".
+# The final dot of a Croatian form is optional: answers sometimes drop it ("Car d.o.o").
+# Limit: a capitalised word right before the name is taken in too ("Ortaci Babić j.t.d.");
+# common role words are removed below, other words are not.
+_LEGAL_FORM = (
+    r"(?:j\.d\.o\.o\.?|d\.o\.o\.?|d\.d\.?|j\.t\.d\.?|k\.d\.?"  # Croatian
+    r"|Ltd\.?|Inc\.?|LLC|GmbH|AG|plc)"  # common foreign forms
+)
+# A capitalised word that is not itself a legal form: in "Baz Ltd and Qux LLC" the name
+# of the second company must not swallow "Baz Ltd".
+_NAME_WORD = rf"(?!{_LEGAL_FORM}(?![^\W\d_]))[A-ZČĆĐŠŽ][\w'&-]*"
+_COMPANY_NAME = rf"{_NAME_WORD}(?:\s+(?:(?:i|and|&)\s+)?{_NAME_WORD}){{0,3}}"
+_COMPANY = re.compile(rf"(?<![^\W\d_])(?P<name>{_COMPANY_NAME}),?\s+{_LEGAL_FORM}(?![^\W\d_])")
+# Capitalised words that name a role, not the company: "Kupac Horvat d.o.o." is the
+# company "Horvat d.o.o.". Removed from the start of a match.
+_ROLE_WORDS = frozenset(
+    "Kupac Izdavatelj Prodavatelj Dobavljač Naručitelj Izvršitelj Tvrtka Društvo Ugovor "  # noqa: SIM905
+    "Račun Buyer Seller Issuer Supplier Client Contractor Company The".split()
+)
 
 
 def is_valid_oib(text: str) -> bool:
@@ -78,6 +99,22 @@ def find_dates(text: str) -> list[Span]:
 def find_amounts(text: str) -> list[Span]:
     """Amounts with a currency before or after them."""
     return [m.span() for m in _MONEY.finditer(text)]
+
+
+def find_companies(text: str) -> list[Span]:
+    """Company names with a legal form, without leading role words ("Kupac")."""
+    spans = []
+    for match in _COMPANY.finditer(text):
+        start = match.start()
+        # Skip role words (and a connector after them) at the start of the name.
+        for word in re.finditer(r"\S+", match.group("name")):
+            if word.group() not in _ROLE_WORDS | {"i", "and", "&"}:
+                start = match.start() + word.start()
+                break
+        else:
+            continue  # the name was only role words: "Tvrtka d.o.o."
+        spans.append((start, match.end()))
+    return spans
 
 
 def normalize_amount(text: str) -> Decimal:
