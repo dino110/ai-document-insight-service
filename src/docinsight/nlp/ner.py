@@ -11,9 +11,11 @@ import re
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import Literal, Protocol
 
 from docinsight.config import Settings
+from docinsight.indexing.lexical import tokenize
 from docinsight.nlp.patterns import (
     Span,
     find_amounts,
@@ -38,12 +40,17 @@ class Entity:
 
 
 class EntityExtractor(Protocol):
-    name: str  # for logs: which backend produced the entities
+    # Backend and versions, stored with every document entity: like the index name of
+    # chunks, it lets reindex find entities produced by an older extractor.
+    name: str
 
     def extract(self, text: str, language: Language) -> list[Entity]:
         """Entities sorted by ``start``, without overlaps."""
         ...
 
+
+# Bump when a rule changes what it finds, so reindex recomputes the stored entities.
+RULES_VERSION = 1
 
 # Rules in priority order: the first one to claim a span keeps it.
 _RULES: list[tuple[EntityLabel, Callable[[str], list[Span]]]] = [
@@ -89,7 +96,7 @@ def rule_entities(text: str) -> list[Entity]:
 class RuleEntityExtractor:
     """Satisfies EntityExtractor with rules only: no model, same result in every language."""
 
-    name = "rules"
+    name = f"rules-{RULES_VERSION}"
 
     def extract(self, text: str, language: Language) -> list[Entity]:
         return rule_entities(text)
@@ -118,10 +125,11 @@ class NerPipeline(Protocol):
 class SpacyEntityExtractor:
     """Satisfies EntityExtractor: rules plus a spaCy pipeline chosen by the question's language."""
 
-    name = "spacy"
-
-    def __init__(self, pipelines: Mapping[Language, NerPipeline]) -> None:
+    def __init__(
+        self, pipelines: Mapping[Language, NerPipeline], name: str = f"spacy+rules-{RULES_VERSION}"
+    ) -> None:
         self._pipelines = pipelines
+        self.name = name
         # The pipelines are shared by the threadpool and spaCy does not promise that one
         # pipeline can run in several threads at once; a call takes milliseconds.
         self._lock = threading.Lock()
@@ -175,8 +183,37 @@ def create_entity_extractor(settings: Settings) -> EntityExtractor:
             raise
         logger.warning("NER: spaCy models not available (%s), using rules only", error)
         return RuleEntityExtractor()
-    logger.info("NER: spaCy %s plus rules", ", ".join(SPACY_MODELS.values()))
-    return SpacyEntityExtractor(pipelines)
+    # "spacy-hr_core_news_md-3.8.0-en_core_web_sm-3.8.0+rules-1": a new model version
+    # (or rule version) is a different extractor.
+    models = "-".join(f"{model}-{version(model)}" for model in SPACY_MODELS.values())
+    extractor = SpacyEntityExtractor(pipelines, name=f"spacy-{models}+rules-{RULES_VERSION}")
+    logger.info("NER: %s", extractor.name)
+    return extractor
+
+
+# Frequent words that are not names, after tokenize() (lowercase, no diacritics).
+_HR_WORDS = frozenset(
+    "i u na za da se je su od do s sa o po iz ili te kao koji koja koje sto nije "  # noqa: SIM905
+    "ovaj ovog ovoga ovim taj biti bit ce clanak ugovor ugovora racun racuna iznos "
+    "datum kupac izdavatelj narucitelj izvrsitelj ukupno osnovica placanje".split()
+)
+_EN_WORDS = frozenset(
+    "the and of to in for is are be by with on as at an or this that from shall "  # noqa: SIM905
+    "will any its it not agreement contract invoice article amount date total client".split()
+)
+_LANGUAGE_SAMPLE_CHARS = 5000
+
+
+def detect_document_language(text: str) -> Language:
+    """The language with more of its frequent words in the start of the text; ties are "hr".
+
+    Unlike detect_language for questions, letters such as "č" do not count: an English
+    contract between Croatian parties is full of them (Šalić, Madunić).
+    """
+    tokens = tokenize(text[:_LANGUAGE_SAMPLE_CHARS])
+    croatian = sum(token in _HR_WORDS for token in tokens)
+    english = sum(token in _EN_WORDS for token in tokens)
+    return "en" if english > croatian else "hr"
 
 
 def _overlaps(a: Span, b: Span) -> bool:

@@ -385,6 +385,7 @@ def test_found_answer_has_entities_with_offsets(
     client: TestClient, generator: FakeGenerator, extractor: RecordingExtractor
 ) -> None:
     _upload(client, "racun-2026-001.pdf", INVOICE_TEXT)
+    extractor.languages.clear()  # processing the upload used the extractor too
     answer = "Ukupno 1.575,00 EUR, kupac Horvat d.o.o., OIB 99083863799 [1]"
     generator.answer = LlmAnswer(answer=answer, found=True, citations=[1])
 
@@ -405,6 +406,7 @@ def test_extractor_gets_the_language_of_the_router(
     client: TestClient, extractor: RecordingExtractor
 ) -> None:
     _upload(client, "racun.pdf", INVOICE_TEXT)
+    extractor.languages.clear()  # processing the upload used the extractor too
 
     _ask(client, {"question": "What is the total amount?"})
 
@@ -415,6 +417,7 @@ def test_not_found_answer_has_no_entities(
     client: TestClient, generator: FakeGenerator, extractor: RecordingExtractor
 ) -> None:
     _upload(client, "racun.pdf", INVOICE_TEXT)
+    extractor.languages.clear()  # processing the upload used the extractor too
     # The model's own text names an amount, but the user sees the fixed "not found" text.
     generator.answer = LlmAnswer(answer="Nije 1.575,00 EUR.", found=False, citations=[])
 

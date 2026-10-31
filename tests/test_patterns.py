@@ -17,6 +17,7 @@ from docinsight.nlp.patterns import (
     is_valid_oib,
     normalize_amount,
     normalize_date,
+    normalize_entity,
 )
 
 EXPECTED = json.loads(
@@ -280,3 +281,25 @@ def test_role_words_before_the_name_are_left_out(text: str, companies: list[str]
 )
 def test_not_a_company(text: str) -> None:
     assert find_companies(text) == []
+
+
+# --- Normalised entities --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "text", "normalized"),
+    [
+        ("OIB", "99083863799", "99083863799"),
+        ("IBAN", "HR72 2360 0004 2751 7979 0", "HR7223600004275179790"),
+        ("IBAN", "hr7223600004275179790", "HR7223600004275179790"),
+        ("MONEY", "1.575,00 EUR", "1575.00"),
+        ("MONEY", "€ 1,575.00", "1575.00"),
+        ("MONEY", "8.800,00\nEUR", "8800.00"),
+        ("DATE", "29.03.2026.", "2026-03-29"),
+        ("DATE", "29. 3. 2026.", "2026-03-29"),
+        ("ORG", "Horvat\nd.o.o.", "Horvat d.o.o."),
+        ("PERSON", "  Ana   Kovač ", "Ana Kovač"),
+    ],
+)
+def test_normalize_entity(label: str, text: str, normalized: str) -> None:
+    assert normalize_entity(label, text) == normalized

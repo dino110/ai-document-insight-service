@@ -44,6 +44,22 @@ class DocumentPage(SQLModel, table=True):
     method: str  # "text_layer" or "ocr"
 
 
+class DocumentEntity(SQLModel, table=True):
+    """A named entity on one page, found by local NER while the document was processed."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    document_id: str = Field(foreign_key="document.id", index=True)
+    owner_id: str = Field(index=True)  # copied from Document, like on chunks
+    page_number: int  # 1-based
+    label: str  # PERSON, ORG, LOC, MISC, OIB, IBAN, DATE or MONEY
+    text: str  # exactly as on the page: page.text[start:end] == text
+    normalized: str  # comparable form: "1575.00", "2026-03-29", an IBAN without spaces
+    start: int  # character offsets in DocumentPage.text
+    end: int
+    # Backend and versions that produced it; reindex replaces entities of other extractors.
+    extractor: str = Field(index=True)
+
+
 class DocumentChunk(SQLModel, table=True):
     """A piece of one page with its embedding: the unit that search finds and answers cite."""
 

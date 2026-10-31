@@ -3,11 +3,11 @@
 from pathlib import Path
 
 import numpy as np
-from sqlmodel import Session, select
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from docinsight.config import Settings
 from docinsight.storage.db import make_engine
-from docinsight.storage.models import Document, DocumentChunk
+from docinsight.storage.models import Document, DocumentChunk, DocumentEntity
 
 
 def test_chunk_embedding_round_trips_through_sqlite(tmp_path: Path) -> None:
@@ -42,3 +42,30 @@ def test_chunk_embedding_round_trips_through_sqlite(tmp_path: Path) -> None:
 
     assert len(chunk.embedding) == 1536 * 4  # float32 = 4 bytes
     assert np.array_equal(np.frombuffer(chunk.embedding, dtype=np.float32), vector)
+
+
+def test_entity_table_is_added_to_an_existing_database(tmp_path: Path) -> None:
+    url = Settings(data_dir=tmp_path).database_url
+    # A database from before phase 5: every table except the entities, with a document.
+    old = create_engine(url)
+    tables = [t for t in SQLModel.metadata.sorted_tables if t.name != "documententity"]
+    SQLModel.metadata.create_all(old, tables=tables)
+    with Session(old) as session:
+        session.add(
+            Document(
+                owner_id="a",
+                filename="racun.pdf",
+                content_type="application/pdf",
+                size_bytes=1,
+                sha256="0" * 64,
+                stored_path="x",
+            )
+        )
+        session.commit()
+    old.dispose()
+
+    engine = make_engine(url)  # what lifespan does at startup
+
+    with Session(engine) as session:
+        assert len(session.exec(select(Document)).all()) == 1  # nothing was deleted
+        assert session.exec(select(DocumentEntity)).all() == []  # the new table exists

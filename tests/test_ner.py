@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 
@@ -17,10 +18,11 @@ from docinsight.nlp.ner import (
     RuleEntityExtractor,
     SpacyEntityExtractor,
     create_entity_extractor,
+    detect_document_language,
     load_spacy_pipelines,
     rule_entities,
 )
-from docinsight.qa.guard import Language
+from docinsight.qa.guard import Language, detect_language
 
 ANSWER = (
     "Ukupno 1.575,00 EUR, kupac Horvat d.o.o., OIB 99083863799, "
@@ -94,7 +96,7 @@ def test_rule_extractor_ignores_the_language() -> None:
     extractor: EntityExtractor = RuleEntityExtractor()
 
     assert extractor.extract(ANSWER, "hr") == extractor.extract(ANSWER, "en")
-    assert extractor.name == "rules"
+    assert extractor.name == "rules-1"
 
 
 def test_citation_marker_is_not_an_entity() -> None:
@@ -269,3 +271,47 @@ def test_real_english_model(spacy_extractor: SpacyEntityExtractor) -> None:
     assert ("Zagreb", "LOC") in found
     assert ("Ivan Kovač", "PERSON") in found
     assert_offsets(text, entities)
+
+
+# --- Language of a whole document ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("filename", "language"),
+    [
+        ("racun-2026-001.pdf", "hr"),
+        ("ugovor-01.pdf", "hr"),
+        # English text between Croatian parties: full of "č" and "ć", still English.
+        ("ugovor-02.pdf", "en"),
+    ],
+)
+def test_detect_document_language_on_samples(filename: str, language: Language) -> None:
+    import pymupdf
+
+    with pymupdf.open(Path(__file__).parent.parent / "sample_docs" / filename) as pdf:
+        text = "\n".join(str(page.get_text()) for page in pdf)
+
+    assert detect_document_language(text) == language
+
+
+def test_detect_language_of_a_question_would_get_the_english_contract_wrong() -> None:
+    # Why documents need their own function: detect_language counts "č" as Croatian.
+    text = "This agreement is made between Šalić d.o.o. and Fuma Madunić."
+
+    assert detect_language(text) == "hr"
+    assert detect_document_language(text) == "en"
+
+
+def test_text_without_frequent_words_is_croatian() -> None:
+    assert detect_document_language("OIB 99083863799 IBAN HR7223600004275179790") == "hr"
+
+
+def test_spacy_extractor_name_has_model_and_rule_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ner, "load_spacy_pipelines", fake_loader)
+    monkeypatch.setattr(ner, "version", lambda model: "9.9.9")
+
+    extractor = create_entity_extractor(Settings(ner_backend="auto"))
+
+    assert extractor.name == "spacy-hr_core_news_md-9.9.9-en_core_web_sm-9.9.9+rules-1"

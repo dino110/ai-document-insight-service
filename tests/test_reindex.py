@@ -12,11 +12,14 @@ from sqlmodel import Session, col, select
 from docinsight.config import Settings, get_settings
 from docinsight.indexing.chunking import index_name
 from docinsight.indexing.embeddings import HashingEmbedder
+from docinsight.nlp.ner import Entity, RuleEntityExtractor
+from docinsight.qa.guard import Language
 from docinsight.reindex import main, reindex
 from docinsight.storage.db import make_engine
-from docinsight.storage.models import Document, DocumentChunk, DocumentPage
+from docinsight.storage.models import Document, DocumentChunk, DocumentEntity, DocumentPage
 
 SETTINGS = Settings()
+EXTRACTOR = RuleEntityExtractor()
 
 
 class CountingEmbedder(HashingEmbedder):
@@ -42,8 +45,13 @@ def add_document(
     *,
     status: str = "processed",
     chunk_model: str | None = None,
+    entity_extractor: str | None = None,
 ) -> str:
-    """A document with stored page text and, with ``chunk_model``, one stale chunk."""
+    """A document with stored page text, optionally one chunk and one entity.
+
+    The chunk has the text "stale" and the entity the text "Stara d.o.o.", so tests can
+    see whether they were replaced.
+    """
     with Session(engine) as session:
         document = Document(
             owner_id="owner",
@@ -71,6 +79,20 @@ def add_document(
                     embedding_model=chunk_model,
                 )
             )
+        if entity_extractor is not None:
+            session.add(
+                DocumentEntity(
+                    document_id=document.id,
+                    owner_id="owner",
+                    page_number=1,
+                    label="ORG",
+                    text="Stara d.o.o.",
+                    normalized="Stara d.o.o.",
+                    start=0,
+                    end=12,
+                    extractor=entity_extractor,
+                )
+            )
         session.commit()
         return document.id
 
@@ -90,7 +112,7 @@ def test_document_without_chunks_is_indexed_from_its_pages(engine: Engine) -> No
     embedder = CountingEmbedder()
     document_id = add_document(engine, ["Kupac: Horvat d.o.o.", "Ukupno: 1.575,00 EUR"])
 
-    stats = reindex(engine, embedder, SETTINGS)
+    stats = reindex(engine, embedder, EXTRACTOR, SETTINGS)
 
     chunks = chunks_of(engine, document_id)
     assert [(c.page_number, c.text) for c in chunks] == [
@@ -105,7 +127,7 @@ def test_chunks_of_another_model_are_replaced(engine: Engine) -> None:
     embedder = CountingEmbedder()
     document_id = add_document(engine, ["Datum dospijeća: 19.01.2026."], chunk_model="old-model")
 
-    reindex(engine, embedder, SETTINGS)
+    reindex(engine, embedder, EXTRACTOR, SETTINGS)
 
     [chunk] = chunks_of(engine, document_id)
     assert chunk.embedding_model == index_name(embedder.name)
@@ -118,7 +140,7 @@ def test_chunks_without_headers_are_replaced(engine: Engine) -> None:
     # Indexed by the same embedder before chunk headers existed.
     document_id = add_document(engine, ["Tekst."], chunk_model=embedder.name)
 
-    stats = reindex(engine, embedder, SETTINGS)
+    stats = reindex(engine, embedder, EXTRACTOR, SETTINGS)
 
     [chunk] = chunks_of(engine, document_id)
     assert chunk.embedding_model == index_name(embedder.name)
@@ -127,9 +149,11 @@ def test_chunks_without_headers_are_replaced(engine: Engine) -> None:
 
 def test_up_to_date_documents_are_not_embedded_again(engine: Engine) -> None:
     embedder = CountingEmbedder()
-    add_document(engine, ["Tekst."], chunk_model=index_name(embedder.name))
+    add_document(
+        engine, ["Tekst."], chunk_model=index_name(embedder.name), entity_extractor=EXTRACTOR.name
+    )
 
-    stats = reindex(engine, embedder, SETTINGS)
+    stats = reindex(engine, embedder, EXTRACTOR, SETTINGS)
 
     assert embedder.calls == 0
     assert (stats.up_to_date, stats.reindexed) == (1, 0)
@@ -139,14 +163,14 @@ def test_documents_that_are_not_processed_are_ignored(engine: Engine) -> None:
     add_document(engine, ["Tekst."], status="failed")
     add_document(engine, ["Tekst."], status="pending")
 
-    assert reindex(engine, CountingEmbedder(), SETTINGS).checked == 0
+    assert reindex(engine, CountingEmbedder(), EXTRACTOR, SETTINGS).checked == 0
 
 
 def test_dry_run_changes_nothing(engine: Engine) -> None:
     embedder = CountingEmbedder()
     document_id = add_document(engine, ["Tekst."], chunk_model="old-model")
 
-    stats = reindex(engine, embedder, SETTINGS, dry_run=True)
+    stats = reindex(engine, embedder, EXTRACTOR, SETTINGS, dry_run=True)
 
     assert stats.reindexed == 1
     assert embedder.calls == 0
@@ -168,7 +192,7 @@ def test_failure_keeps_old_chunks_and_continues(
 
     monkeypatch.setattr(embedder, "embed_documents", fail_once)
 
-    stats = reindex(engine, embedder, SETTINGS)
+    stats = reindex(engine, embedder, EXTRACTOR, SETTINGS)
 
     assert [c.text for c in chunks_of(engine, broken)] == ["stale"]  # rolled back
     assert [c.text for c in chunks_of(engine, fine)] == ["Drugi."]
@@ -191,9 +215,102 @@ def test_main_uses_settings_and_prints_a_summary(
     add_document(engine, ["Kupac: Horvat d.o.o."])
 
     assert main(["--dry-run"]) == 0
-    assert "would re-index 1" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "would re-index 1" in out
+    assert "Entities rules-1: would refresh 1, 0 entities written." in out
 
     assert main([]) == 0  # no API key in tests, so the hashing embedder is used
-    assert "re-indexed 1, failed 0, 1 chunks written" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "re-indexed 1, failed 0, 1 chunks written" in out
+    assert "Entities rules-1: refreshed 1, 1 entities written." in out  # Horvat d.o.o.
     assert main([]) == 0
     assert "1 up to date, re-indexed 0" in capsys.readouterr().out
+
+
+# --- Entities -------------------------------------------------------------------
+
+
+def entities_of(engine: Engine, document_id: str) -> list[DocumentEntity]:
+    with Session(engine) as session:
+        return list(
+            session.exec(
+                select(DocumentEntity)
+                .where(DocumentEntity.document_id == document_id)
+                .order_by(col(DocumentEntity.start))
+            )
+        )
+
+
+def test_document_without_entities_gets_them_without_embedding(engine: Engine) -> None:
+    embedder = CountingEmbedder()
+    document_id = add_document(
+        engine,
+        ["Kupac Horvat d.o.o., OIB 99083863799", "Ukupno 1.575,00 EUR"],
+        chunk_model=index_name(embedder.name),
+    )
+
+    stats = reindex(engine, embedder, EXTRACTOR, SETTINGS)
+
+    entities = entities_of(engine, document_id)
+    assert sorted((e.page_number, e.label, e.normalized) for e in entities) == [
+        (1, "OIB", "99083863799"),
+        (1, "ORG", "Horvat d.o.o."),
+        (2, "MONEY", "1575.00"),
+    ]
+    assert {e.extractor for e in entities} == {"rules-1"}
+    assert embedder.calls == 0  # the chunks were current
+    assert (stats.reindexed, stats.entities_refreshed, stats.entities_written) == (0, 1, 3)
+
+
+def test_entities_of_another_extractor_are_replaced(engine: Engine) -> None:
+    document_id = add_document(engine, ["Kupac Horvat d.o.o."], entity_extractor="rules-0")
+
+    reindex(engine, CountingEmbedder(), EXTRACTOR, SETTINGS)
+
+    assert [(e.text, e.extractor) for e in entities_of(engine, document_id)] == [
+        ("Horvat d.o.o.", "rules-1")
+    ]
+
+
+def test_current_entities_are_kept_when_only_chunks_are_rebuilt(engine: Engine) -> None:
+    document_id = add_document(
+        engine, ["Kupac Horvat d.o.o."], chunk_model="old-model", entity_extractor=EXTRACTOR.name
+    )
+
+    stats = reindex(engine, CountingEmbedder(), EXTRACTOR, SETTINGS)
+
+    assert [e.text for e in entities_of(engine, document_id)] == ["Stara d.o.o."]  # untouched
+    assert [c.text for c in chunks_of(engine, document_id)] == ["Kupac Horvat d.o.o."]
+    assert (stats.reindexed, stats.entities_refreshed) == (1, 0)
+
+
+class FailingExtractor:
+    name = "rules-2"
+
+    def extract(self, text: str, language: Language) -> list[Entity]:
+        raise RuntimeError("model crashed")
+
+
+def test_ner_failure_rolls_back_the_whole_document(engine: Engine) -> None:
+    document_id = add_document(
+        engine, ["Kupac Horvat d.o.o."], chunk_model="old-model", entity_extractor="rules-1"
+    )
+
+    stats = reindex(engine, CountingEmbedder(), FailingExtractor(), SETTINGS)
+
+    # Neither the new chunks nor an empty entity list replaced the old rows.
+    assert [c.text for c in chunks_of(engine, document_id)] == ["stale"]
+    assert [e.text for e in entities_of(engine, document_id)] == ["Stara d.o.o."]
+    assert (stats.failed, stats.reindexed, stats.entities_refreshed) == (1, 0, 0)
+
+
+def test_dry_run_counts_entities_and_changes_nothing(engine: Engine) -> None:
+    embedder = CountingEmbedder()
+    document_id = add_document(
+        engine, ["Kupac Horvat d.o.o."], chunk_model=index_name(embedder.name)
+    )
+
+    stats = reindex(engine, embedder, EXTRACTOR, SETTINGS, dry_run=True)
+
+    assert (stats.reindexed, stats.entities_refreshed) == (0, 1)
+    assert entities_of(engine, document_id) == []

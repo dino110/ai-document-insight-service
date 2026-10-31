@@ -14,7 +14,9 @@ from docinsight.extraction.ocr import OcrEngine, OcrUnavailableError
 from docinsight.extraction.service import PageText, extract_document
 from docinsight.indexing.chunking import chunk_pages, contextualize, document_intro, index_name
 from docinsight.indexing.embeddings import Embedder
-from docinsight.storage.models import Document, DocumentChunk, DocumentPage
+from docinsight.nlp.ner import EntityExtractor, detect_document_language
+from docinsight.nlp.patterns import normalize_entity
+from docinsight.storage.models import Document, DocumentChunk, DocumentEntity, DocumentPage
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +80,60 @@ def build_chunks(
     ]
 
 
+def extract_entities(
+    document: Document, pages: list[PageText], extractor: EntityExtractor
+) -> list[DocumentEntity]:
+    """Named entities of every page, in the language of the whole document; may raise."""
+    started = time.perf_counter()
+    language = detect_document_language("\n".join(page.text for page in pages))
+    entities = [
+        DocumentEntity(
+            document_id=document.id,
+            owner_id=document.owner_id,
+            page_number=page.page,
+            label=entity.label,
+            text=entity.text,
+            normalized=normalize_entity(entity.label, entity.text),
+            start=entity.start,
+            end=entity.end,
+            extractor=extractor.name,
+        )
+        for page in pages
+        for entity in extractor.extract(page.text, language)
+    ]
+    logger.info(
+        "Document %s: %d entities (%s, %s) in %.2f s",
+        document.id,
+        len(entities),
+        language,
+        extractor.name,
+        time.perf_counter() - started,
+    )
+    return entities
+
+
+def build_entities(
+    document: Document, pages: list[PageText], extractor: EntityExtractor
+) -> list[DocumentEntity]:
+    """extract_entities for a new document: a failure is logged and gives no entities.
+
+    Entities are an extra, not part of "processed": the document is stored without them
+    and reindex can add them later. The log has the document id, never its text.
+    """
+    try:
+        return extract_entities(document, pages, extractor)
+    except Exception:
+        logger.warning("Document %s: entity extraction failed", document.id, exc_info=True)
+        return []
+
+
 def process_document(
-    document_id: str, engine: Engine, ocr: OcrEngine, embedder: Embedder, settings: Settings
+    document_id: str,
+    engine: Engine,
+    ocr: OcrEngine,
+    embedder: Embedder,
+    entity_extractor: EntityExtractor,
+    settings: Settings,
 ) -> None:
     """Extract and index the text of one document and mark it as processed or failed.
 
@@ -107,6 +161,7 @@ def process_document(
             )
             # Pages and chunks are committed together: "processed" always means searchable.
             session.add_all(build_chunks(document, pages, embedder, settings))
+            session.add_all(build_entities(document, pages, entity_extractor))
             document.status = "processed"
             document.page_count = len(pages)
             session.commit()

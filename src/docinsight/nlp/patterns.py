@@ -145,6 +145,24 @@ def normalize_date(text: str) -> date:
     raise ValueError("no valid date in text")
 
 
+def normalize_entity(label: str, text: str) -> str:
+    """A form that compares equal however the value was written.
+
+    OIB and IBAN without spaces ("HR72 2360 ..." -> "HR722360..."), amounts as
+    "1575.00" (the currency is dropped), dates in ISO format, anything else with single
+    spaces ("Horvat\nd.o.o." -> "Horvat d.o.o.").
+    """
+    match label:
+        case "OIB" | "IBAN":
+            return "".join(text.split()).upper()
+        case "MONEY":
+            return str(normalize_amount(text))
+        case "DATE":
+            return normalize_date(text).isoformat()
+        case _:
+            return " ".join(text.split())
+
+
 def _to_date(match: re.Match[str], *, day_first: bool) -> date | None:
     """The date of a match, or None when it does not exist (31.02.2026.)."""
     first, second, third = (int(group) for group in match.groups())

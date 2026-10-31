@@ -1,5 +1,7 @@
 """API tests for uploading, listing and reading documents."""
 
+import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -7,14 +9,16 @@ from factories import FAKE_OCR_TEXT, FakeOcrEngine, make_image_pdf, make_png, ma
 from fastapi.testclient import TestClient
 from sqlmodel import Session, col, select
 
-from docinsight.api.deps import get_ocr_engine
+from docinsight.api.deps import get_entity_extractor, get_ocr_engine
 from docinsight.config import get_settings
 from docinsight.extraction.ocr import UnavailableOcrEngine
 from docinsight.indexing.chunking import index_name
 from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.main import app
+from docinsight.nlp.ner import Entity, RuleEntityExtractor
 from docinsight.processing import process_document
-from docinsight.storage.models import DocumentChunk
+from docinsight.qa.guard import Language
+from docinsight.storage.models import DocumentChunk, DocumentEntity, DocumentPage
 
 PDF = b"%PDF-1.4\n1 0 obj << >> endobj\n%%EOF\n"
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
@@ -331,7 +335,14 @@ def test_processing_a_deleted_document_is_skipped(client: TestClient) -> None:
     settings = get_settings()
 
     # Must not raise, e.g. when the document was removed before the task ran.
-    process_document("no-such-id", app.state.engine, FakeOcrEngine(), HashingEmbedder(), settings)
+    process_document(
+        "no-such-id",
+        app.state.engine,
+        FakeOcrEngine(),
+        HashingEmbedder(),
+        RuleEntityExtractor(),
+        settings,
+    )
 
 
 def test_broken_pdf_is_marked_failed(client: TestClient) -> None:
@@ -397,3 +408,87 @@ def test_embedding_error_marks_document_failed(
     # Rolled back together: no pages and no chunks of a half-processed document.
     assert detail["pages"] == []
     assert _chunks(document_id) == []
+
+
+# --- Entities found while processing --------------------------------------------
+
+SAMPLE_DOCS = Path(__file__).parent.parent / "sample_docs"
+
+
+def _entities(document_id: str) -> list[DocumentEntity]:
+    with Session(app.state.engine) as session:
+        return list(
+            session.exec(
+                select(DocumentEntity)
+                .where(DocumentEntity.document_id == document_id)
+                .order_by(col(DocumentEntity.page_number), col(DocumentEntity.start))
+            ).all()
+        )
+
+
+def test_processing_stores_the_entities_of_an_invoice(client: TestClient) -> None:
+    content = (SAMPLE_DOCS / "racun-2026-001.pdf").read_bytes()
+    expected = json.loads((SAMPLE_DOCS / "expected.json").read_text())["racun-2026-001.pdf"]
+
+    document_id = _upload_one(client, "racun-2026-001.pdf", content)
+
+    entities = _entities(document_id)
+    found = {(e.label, e.normalized) for e in entities}
+    assert ("OIB", expected["issuer_oib"]) in found
+    assert ("OIB", expected["buyer_oib"]) in found
+    assert ("IBAN", expected["issuer_iban"]) in found  # printed in groups and compact
+    assert ("MONEY", expected["total"]) in found
+    assert ("DATE", expected["due_date"]) in found
+    assert ("ORG", expected["issuer"]) in found
+    assert ("ORG", expected["buyer"]) in found
+    # Both printed forms of the IBAN normalise to the same value.
+    assert sorted(e.text for e in entities if e.label == "IBAN") == sorted(
+        [" ".join(expected["issuer_iban"][i : i + 4] for i in range(0, 21, 4)),
+         expected["issuer_iban"]]
+    )  # fmt: skip
+    assert {e.extractor for e in entities} == {"rules-1"}  # the tests use rules only
+    assert {e.owner_id for e in entities} == {"owner"}
+
+
+def test_entity_offsets_point_into_the_page_text(client: TestClient) -> None:
+    content = make_text_pdf("Kupac Horvat d.o.o., OIB 99083863799, ukupno 1.575,00 EUR", pages=2)
+    document_id = _upload_one(client, "racun.pdf", content)
+
+    entities = _entities(document_id)
+    with Session(app.state.engine) as session:
+        pages = {
+            page.page_number: page.text
+            for page in session.exec(
+                select(DocumentPage).where(DocumentPage.document_id == document_id)
+            )
+        }
+
+    assert {e.page_number for e in entities} == {1, 2}  # make_text_pdf repeats the text
+    assert all(pages[e.page_number][e.start : e.end] == e.text for e in entities)
+
+
+class FailingExtractor:
+    name = "failing"
+
+    def extract(self, text: str, language: Language) -> list[Entity]:
+        raise RuntimeError("model crashed")
+
+
+def test_ner_failure_does_not_fail_processing(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    app.dependency_overrides[get_entity_extractor] = FailingExtractor
+    content = make_text_pdf("Kupac Horvat d.o.o., OIB 99083863799", pages=1)
+
+    with caplog.at_level(logging.WARNING, logger="docinsight.processing"):
+        document_id = _upload_one(client, "racun.pdf", content)
+
+    assert _detail(client, document_id)["status"] == "processed"
+    with Session(app.state.engine) as session:
+        chunks = session.exec(
+            select(DocumentChunk).where(DocumentChunk.document_id == document_id)
+        ).all()
+    assert chunks  # still searchable
+    assert _entities(document_id) == []
+    assert "entity extraction failed" in caplog.text
+    assert "99083863799" not in caplog.text  # never the document text

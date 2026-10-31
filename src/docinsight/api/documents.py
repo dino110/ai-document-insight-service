@@ -12,6 +12,7 @@ from docinsight.api.deps import (
     DbEngine,
     DbSession,
     EmbedderDep,
+    EntityExtractorDep,
     OcrDep,
     SettingsDep,
     get_or_create_session_id,
@@ -67,6 +68,7 @@ def upload_documents(
     settings: SettingsDep,
     ocr: OcrDep,
     embedder: EmbedderDep,
+    entity_extractor: EntityExtractorDep,
     background_tasks: BackgroundTasks,
 ) -> UploadResponse:
     """Validate and store documents; text extraction runs after the response is sent."""
@@ -112,7 +114,9 @@ def upload_documents(
     for document in sorted(
         documents, key=lambda d: (d.content_type != "application/pdf", d.size_bytes)
     ):
-        background_tasks.add_task(process_document, document.id, engine, ocr, embedder, settings)
+        background_tasks.add_task(
+            process_document, document.id, engine, ocr, embedder, entity_extractor, settings
+        )
 
     return UploadResponse(
         session_id=owner_id,
