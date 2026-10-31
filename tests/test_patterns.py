@@ -181,6 +181,18 @@ def test_amount_with_a_no_break_space_before_the_currency() -> None:
     assert found(text, find_amounts(text)) == ["1.575,00\u00a0EUR"]
 
 
+def test_amount_and_currency_on_two_lines() -> None:
+    # From the English sample contract: the line wraps between the number and "EUR".
+    text = "a total fee of 8.800,00\nEUR (gross)"
+
+    assert found(text, find_amounts(text)) == ["8.800,00\nEUR"]
+    assert normalize_amount("8.800,00\nEUR") == Decimal("8800.00")
+
+
+def test_amount_and_currency_are_not_joined_across_a_blank_line() -> None:
+    assert find_amounts("Količina 3\n\nEUR je valuta") == []
+
+
 def test_numbers_without_a_currency_are_not_amounts() -> None:
     assert find_amounts("PDV 25,00 %, količina 3, račun 2026-001, OIB 99083863799") == []
 

@@ -28,10 +28,12 @@ _DATE_ISO = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
 # "1.575,00", "1,575.00", "1575.00", "1.575": groups of three, optional cents.
 _AMOUNT = r"\d+(?:[.,]\d{3})*(?:[.,]\d{2})?"
 # Only with a currency: "25,00 %" or a quantity is not money. [^\W\d_] means a letter.
+# One whitespace character between them, including a line break: a document can wrap
+# "8.800,00\nEUR", and \s also covers a no-break space.
 _CURRENCY = r"(?:EUR|HRK|USD|GBP|[Ee]ur[ao]?|kn|€|\$|£)(?![^\W\d_])"
 _MONEY = re.compile(
-    rf"(?<![^\W\d_]){_CURRENCY}[ \u00a0]?{_AMOUNT}(?!\d)"  # "€ 1,575.00"
-    rf"|(?<![\d.,]){_AMOUNT}[ \u00a0]?{_CURRENCY}"  # "1.575,00 EUR"
+    rf"(?<![^\W\d_]){_CURRENCY}\s?{_AMOUNT}(?!\d)"  # "€ 1,575.00"
+    rf"|(?<![\d.,]){_AMOUNT}\s?{_CURRENCY}"  # "1.575,00 EUR"
 )
 _AMOUNT_ONLY = re.compile(rf"(?<![\d.,]){_AMOUNT}(?!\d)")
 
