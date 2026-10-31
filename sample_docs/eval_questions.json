@@ -119,6 +119,28 @@
     "page": 1
   },
   {
+    "id": "followup-inv002-vat",
+    "question": "A PDV?",
+    "history": [
+      {"role": "user", "text": "Koliki je ukupni iznos računa 2026-002?"},
+      {"role": "assistant", "text": "Ukupni iznos računa 2026-002 je 9.537,50 EUR."}
+    ],
+    "expected": ["1.907,50", "1907,50", "1907.50", "1,907.50"],
+    "document": "racun-2026-002.pdf",
+    "page": 1
+  },
+  {
+    "id": "followup-c01-deadline",
+    "question": "A do kada mora predati djelo?",
+    "history": [
+      {"role": "user", "text": "Kolika je naknada prema ugovoru o djelu s Elvisom Antićem?"},
+      {"role": "assistant", "text": "Naknada iznosi 6.300,00 EUR (bruto)."}
+    ],
+    "expected": ["29.10.2026", "2026-10-29"],
+    "document": "ugovor-01.pdf",
+    "page": 1
+  },
+  {
     "id": "none-interest",
     "question": "Koja je kamatna stopa za zakašnjelo plaćanje?",
     "expected": null,

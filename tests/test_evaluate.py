@@ -51,7 +51,7 @@ def test_percentile_nearest_rank() -> None:
 def test_question_set_shape() -> None:
     expected_docs = json.loads((SAMPLE_DIR / "expected.json").read_text(encoding="utf-8"))
 
-    assert 16 <= len(QUESTIONS) <= 20
+    assert 16 <= len(QUESTIONS) <= 22
     assert len({q["id"] for q in QUESTIONS}) == len(QUESTIONS)
     unanswerable = [q for q in QUESTIONS if q["expected"] is None]
     assert 2 <= len(unanswerable) <= 3
@@ -88,3 +88,14 @@ def test_run_against_the_app_produces_a_report(
     assert "### Evaluation: test run" in text
     assert "| Answer accuracy | " in text
     assert "9 documents uploaded" in text
+
+
+def test_follow_up_questions_depend_on_their_history() -> None:
+    follow_ups = [q for q in QUESTIONS if "history" in q]
+
+    assert len(follow_ups) == 2
+    for q in follow_ups:
+        [user, assistant] = q["history"]
+        assert (user["role"], assistant["role"]) == ("user", "assistant")
+        # The question alone does not name the document: only the history does.
+        assert base_document(q["document"] or "") not in q["question"]

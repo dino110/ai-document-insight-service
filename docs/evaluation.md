@@ -39,6 +39,30 @@ Findings:
 - 17 questions are a regression check, not a precise accuracy: one question moves the
   result by about 6 percentage points.
 
+## Follow-up questions with conversation history (local, 5 digital documents)
+
+Two follow-ups were added to the set (22 questions, 19 answerable): "A PDV?" after a
+question about invoice 2026-002, and "A do kada mora predati djelo?" after a question
+about the contract with Elvis Antić. The client sends the earlier messages in `history`.
+
+With router and history (OpenAI embeddings, hybrid retrieval, chunk headers): answer
+accuracy 19/19, citation accuracy 19/19, correct "not found" 3/3, retrieval p50 / p95
+245 / 330 ms, generation p50 / p95 1350 / 2191 ms. All 20 earlier questions still route
+to `rag`.
+
+The same two questions without history:
+
+| Question | Without history | With history |
+| --- | --- | --- |
+| A PDV? | VAT of all three invoices, sources from all three | 1.907,50 EUR, source `racun-2026-002.pdf` only |
+| A do kada mora predati djelo? | 29.10.2026., `ugovor-01.pdf` | 29.10.2026., `ugovor-01.pdf` |
+
+Both follow-ups pass the current metrics even without history: the first because the
+answer lists every invoice and so contains the expected value, the second because only
+one contract uses that wording. They guard against regressions but do not measure what
+history adds. A stricter check (all sources from the expected document) and a follow-up
+that is ambiguous between the contracts would.
+
 ## Production setup (Docker, 9 documents including 4 scans through EasyOCR)
 
 Before chunk headers this setup scored 16/17: `c02-start-hr` was answered with the date of

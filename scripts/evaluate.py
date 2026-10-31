@@ -16,7 +16,7 @@ import time
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, NotRequired, TypedDict
 from uuid import uuid4
 
 import httpx2
@@ -26,9 +26,16 @@ SAMPLE_DIR = Path(__file__).resolve().parent.parent / "sample_docs"
 CONTENT_TYPES = {".pdf": "application/pdf", ".jpg": "image/jpeg", ".png": "image/png"}
 
 
+class EvalHistoryMessage(TypedDict):
+    role: Literal["user", "assistant"]
+    text: str
+
+
 class EvalQuestion(TypedDict):
     id: str
     question: str
+    # A follow-up question: the earlier conversation, sent to /ask as it is.
+    history: NotRequired[list[EvalHistoryMessage]]
     expected: list[str] | None  # acceptable spellings of the answer; None = not in the documents
     document: str | None
     page: int | None
@@ -114,7 +121,9 @@ def upload_and_wait(
 def ask(client: httpx2.Client, session_id: str, question: EvalQuestion) -> QuestionResult:
     started = time.perf_counter()
     response = client.post(
-        "/ask", json={"question": question["question"]}, headers={"X-Session-ID": session_id}
+        "/ask",
+        json={"question": question["question"], "history": question.get("history", [])},
+        headers={"X-Session-ID": session_id},
     )
     total_ms = (time.perf_counter() - started) * 1000
     body = response.json() if response.status_code == 200 else {}
