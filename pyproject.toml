@@ -8,14 +8,17 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "en-core-web-sm",
     "faiss-cpu>=1.15.1",
     "fastapi>=0.143.3",
+    "hr-core-news-md",
     "numpy>=2.5.4",
     "openai>=3.41.0",
     "pillow>=13.0.0",
     "pydantic-settings>=2.16.0",
     "pymupdf>=1.28,<2",
     "python-multipart>=0.0.32",
+    "spacy>=3.8.18,<3.9",  # models 3.8.0 need spaCy 3.8.x
     "sqlmodel>=0.0.48",
     "uvicorn[standard]>=0.54.0",
 ]
@@ -60,6 +63,8 @@ explicit = true
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+hr-core-news-md = { url = "https://github.com/explosion/spacy-models/releases/download/hr_core_news_md-3.8.0/hr_core_news_md-3.8.0-py3-none-any.whl" }
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [tool.ruff]
 line-length = 100
