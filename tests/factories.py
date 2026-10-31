@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 from PIL import Image, ImageDraw
 from sqlmodel import Session
 
+from docinsight.indexing.chunking import contextualize, index_name
 from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.qa.generator import LlmAnswer
 from docinsight.qa.prompts import ContextChunk
@@ -85,7 +86,10 @@ def add_indexed_document(
     status: str = "processed",
     model: str | None = None,
 ) -> str:
-    """Store a document with one chunk per text, the n-th text on page n; return its id."""
+    """Store a document with one chunk per text, the n-th text on page n; return its id.
+
+    No pages are stored, so the chunk header is the file name alone (as for a blank page 1).
+    """
     document = Document(
         owner_id=owner_id,
         filename=filename,
@@ -96,7 +100,7 @@ def add_indexed_document(
         status=status,
     )
     session.add(document)
-    vectors = embedder.embed_documents(texts)
+    vectors = embedder.embed_documents([contextualize(filename, "", text) for text in texts])
     session.add_all(
         DocumentChunk(
             document_id=document.id,
@@ -105,7 +109,7 @@ def add_indexed_document(
             chunk_index=i,
             text=text,
             embedding=vector.tobytes(),
-            embedding_model=model or embedder.name,
+            embedding_model=model or index_name(embedder.name),
         )
         for i, (text, vector) in enumerate(zip(texts, vectors, strict=True))
     )

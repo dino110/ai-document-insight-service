@@ -11,8 +11,9 @@ import numpy as np
 from numpy.typing import NDArray
 from sqlmodel import Session, col, select
 
+from docinsight.indexing.chunking import contextualize, document_intro
 from docinsight.indexing.lexical import bm25_scores, reciprocal_rank_fusion
-from docinsight.storage.models import Document, DocumentChunk
+from docinsight.storage.models import Document, DocumentChunk, DocumentPage
 
 try:
     import faiss
@@ -32,6 +33,7 @@ class ScoredChunk:
     # Dense search: cosine similarity (all vectors are L2-normalised).
     # Hybrid search: fused rank score, 0..1, where 1.0 = first in both rankings.
     score: float
+    intro: str = ""  # start of the document's page 1, tells the LLM where the chunk is from
 
 
 def search_chunks(
@@ -66,6 +68,7 @@ def search_chunks(
     rows = session.exec(statement).all()
     if not rows:
         return []
+    intros = _document_intros(session, {chunk.document_id for chunk, _ in rows})
 
     matrix = np.vstack([np.frombuffer(chunk.embedding, dtype=np.float32) for chunk, _ in rows])
     query = np.ascontiguousarray(query_vector, dtype=np.float32).reshape(1, -1)
@@ -79,7 +82,14 @@ def search_chunks(
             if use_faiss
             else _numpy_top_k(matrix, query, len(rows))
         )
-        lexical = bm25_scores(query_text, [chunk.text for chunk, _ in rows])
+        # The same text that was embedded: chunk plus document header.
+        lexical = bm25_scores(
+            query_text,
+            [
+                contextualize(filename, intros.get(chunk.document_id, ""), chunk.text)
+                for chunk, filename in rows
+            ],
+        )
         # Chunks without a shared token get no lexical rank at all.
         lexical_ranking = sorted(
             (p for p, score in enumerate(lexical) if score > 0), key=lambda p: -lexical[p]
@@ -98,9 +108,18 @@ def search_chunks(
                 chunk_index=chunk.chunk_index,
                 text=chunk.text,
                 score=score,
+                intro=intros.get(chunk.document_id, ""),
             )
         )
     return results
+
+
+def _document_intros(session: Session, document_ids: set[str]) -> dict[str, str]:
+    """document_id -> intro, computed from the stored page 1 exactly as at indexing time."""
+    statement = select(DocumentPage.document_id, DocumentPage.text).where(
+        col(DocumentPage.document_id).in_(document_ids), DocumentPage.page_number == 1
+    )
+    return {document_id: document_intro(text) for document_id, text in session.exec(statement)}
 
 
 def _faiss_top_k(

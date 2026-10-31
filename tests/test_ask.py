@@ -46,9 +46,10 @@ def test_answer_cites_file_and_page(client: TestClient, generator: FakeGenerator
     assert source["page_number"] in (1, 2)
     assert "1.575,00 EUR" in source["snippet"]
     assert set(source) == {"document_id", "filename", "page_number", "snippet", "score"}
-    # The question reaches the LLM stripped.
-    [(question, _)] = generator.calls
+    # The question reaches the LLM stripped, the excerpts with the start of their document.
+    [(question, contexts)] = generator.calls
     assert question == "Koliki je ukupni iznos?"
+    assert contexts[0].intro.startswith("Racun 2026-001. Kupac: Horvat d.o.o.")
 
 
 def test_not_found_answer_has_no_sources(client: TestClient, generator: FakeGenerator) -> None:

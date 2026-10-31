@@ -10,6 +10,7 @@ from sqlmodel import Session, col, select
 from docinsight.api.deps import get_ocr_engine
 from docinsight.config import get_settings
 from docinsight.extraction.ocr import UnavailableOcrEngine
+from docinsight.indexing.chunking import index_name
 from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.main import app
 from docinsight.processing import process_document
@@ -365,7 +366,7 @@ def test_processed_document_is_indexed_per_page(
     assert [chunk.page_number for chunk in chunks] == [1, 2]
     assert [chunk.chunk_index for chunk in chunks] == [0, 1]
     assert {chunk.owner_id for chunk in chunks} == {"owner"}
-    assert {chunk.embedding_model for chunk in chunks} == {embedder.name}
+    assert {chunk.embedding_model for chunk in chunks} == {index_name(embedder.name)}
     assert "1.575,00 EUR" in chunks[0].text
     assert len(chunks[0].embedding) == embedder.dim * 4  # float32
 
