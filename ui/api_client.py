@@ -5,6 +5,7 @@ The TypedDicts below mirror the JSON responses (like TS types written from an Op
 they are hints for mypy only, nothing is validated at runtime.
 """
 
+from collections.abc import Sequence
 from typing import Literal, TypedDict
 
 import httpx2
@@ -60,6 +61,11 @@ class SourceOut(TypedDict):
     score: float
 
 
+class HistoryMessage(TypedDict):
+    role: Literal["user", "assistant"]
+    text: str
+
+
 class AskResponse(TypedDict):
     answer: str
     found: bool  # False: the documents do not contain the answer (and sources is empty)
@@ -113,14 +119,22 @@ def get_document(client: httpx2.Client, session_id: str, document_id: str) -> Do
     return data
 
 
-def ask(client: httpx2.Client, session_id: str, question: str) -> AskResponse:
-    """Ask a question about the session's processed documents."""
+def ask(
+    client: httpx2.Client,
+    session_id: str,
+    question: str,
+    history: Sequence[HistoryMessage] = (),
+) -> AskResponse:
+    """Ask a question about the session's processed documents.
+
+    ``history`` is the earlier conversation (at most 6 messages): the API keeps none.
+    """
     response = _send(
         client,
         "POST",
         "/ask",
         headers={SESSION_HEADER: session_id},
-        json={"question": question},
+        json={"question": question, "history": list(history)},
         timeout=ASK_TIMEOUT_S,
     )
     data: AskResponse = response.json()
@@ -134,7 +148,7 @@ def _send(
     *,
     headers: dict[str, str],
     files: list[tuple[str, UploadFile]] | None = None,
-    json: dict[str, str] | None = None,
+    json: dict[str, object] | None = None,
     timeout: float | None = None,
 ) -> httpx2.Response:
     """Send a request and turn every failure into ApiError."""

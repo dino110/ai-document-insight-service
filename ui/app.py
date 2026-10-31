@@ -6,6 +6,7 @@ Streamlit reruns this whole script on every interaction. State that must survive
 lives in st.session_state (per browser tab) and st.query_params (the URL, survives F5).
 """
 
+import itertools
 import os
 from typing import Literal, TypedDict
 
@@ -15,6 +16,7 @@ from api_client import (
     ApiError,
     AskResponse,
     DocumentOut,
+    HistoryMessage,
     SourceOut,
     ask,
     get_document,
@@ -35,6 +37,11 @@ class ChatMessage(TypedDict):
     sources: list[SourceOut]
     caption: str  # model and timings under an answer, "" otherwise
     error: bool  # the API call failed; content is the error message
+    route: str | None  # the API's route for an answer; None for questions and errors
+
+
+HISTORY_PAIRS = 3  # the API accepts at most 6 messages: 3 questions and 3 answers
+HISTORY_ANSWER_CHARS = 500
 
 
 @st.cache_resource
@@ -186,7 +193,46 @@ def answer_caption(result: AskResponse) -> str:
     )
 
 
+def conversation_history(messages: list[ChatMessage]) -> list[HistoryMessage]:
+    """The last question-answer pairs answered from the documents, oldest first.
+
+    Refusals, small talk, the document list and errors are left out: they do not help to
+    understand a follow-up question. Long answers are cut, the history is only context.
+    """
+    # Each answer with the message right before it, so a question left without an answer
+    # (an interrupted run) does not shift the pairs after it.
+    pairs = [
+        (question, answer)
+        for question, answer in itertools.pairwise(messages)
+        if question["role"] == "user"
+        and answer["role"] == "assistant"
+        and answer.get("route") == "rag"
+        and not answer["error"]
+    ]
+    history: list[HistoryMessage] = []
+    for question, answer in pairs[-HISTORY_PAIRS:]:
+        history.append({"role": "user", "text": question["content"]})
+        history.append({"role": "assistant", "text": _shorten(answer["content"])})
+    return history
+
+
+def _shorten(text: str) -> str:
+    if len(text) <= HISTORY_ANSWER_CHARS:
+        return text
+    return text[:HISTORY_ANSWER_CHARS].rsplit(maxsplit=1)[0] + " …"
+
+
+def _new_conversation() -> None:
+    st.session_state.messages = []
+
+
 def chat(session_id: str) -> None:
+    st.button(
+        "Novi razgovor",
+        icon=":material/restart_alt:",
+        on_click=_new_conversation,  # runs before the rerun, so the page is already empty
+        disabled=not st.session_state.messages,
+    )
     for message in st.session_state.messages:
         show_message(message)
 
@@ -200,15 +246,24 @@ def chat(session_id: str) -> None:
     if not question:
         return
 
-    asked = ChatMessage(role="user", content=question, sources=[], caption="", error=False)
+    # Built before the new question is added: the history is what came before it.
+    history = conversation_history(st.session_state.messages)
+    asked = ChatMessage(
+        role="user", content=question, sources=[], caption="", error=False, route=None
+    )
     st.session_state.messages.append(asked)
     show_message(asked)
     with st.spinner("Tražim odgovor u dokumentima…"):
         try:
-            result = ask(get_client(), session_id, question)
+            result = ask(get_client(), session_id, question, history)
         except ApiError as exc:
             reply = ChatMessage(
-                role="assistant", content=exc.detail, sources=[], caption="", error=True
+                role="assistant",
+                content=exc.detail,
+                sources=[],
+                caption="",
+                error=True,
+                route=None,
             )
         else:
             reply = ChatMessage(
@@ -217,6 +272,7 @@ def chat(session_id: str) -> None:
                 sources=result["sources"],
                 caption=answer_caption(result),
                 error=False,
+                route=result["route"],
             )
     st.session_state.messages.append(reply)
     show_message(reply)

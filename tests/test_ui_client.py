@@ -8,6 +8,7 @@ import pytest
 from api_client import (
     ASK_TIMEOUT_S,
     ApiError,
+    HistoryMessage,
     ask,
     get_document,
     list_documents,
@@ -166,7 +167,7 @@ def test_ask_posts_the_question_with_session_and_a_longer_timeout() -> None:
     [request] = requests
     assert (request.method, request.url.path) == ("POST", "/ask")
     assert request.headers["X-Session-ID"] == "abc"
-    assert json.loads(request.read()) == {"question": "Koliki je ukupni iznos?"}
+    assert json.loads(request.read()) == {"question": "Koliki je ukupni iznos?", "history": []}
     # The LLM call can take far longer than listing documents.
     assert request.extensions["timeout"]["read"] == ASK_TIMEOUT_S
     assert result["sources"][0]["page_number"] == 1
@@ -214,3 +215,19 @@ def test_ask_returns_a_canned_answer_without_model() -> None:
     result = ask(_client(handler), "abc", "Trebam li tužiti dobavljača?")
 
     assert (result["route"], result["model"], result["timings_ms"]) == ("legal_advice", None, {})
+
+
+def test_ask_sends_the_history() -> None:
+    bodies: list[object] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        bodies.append(json.loads(request.read()))
+        return httpx2.Response(200, json=ANSWER)
+
+    history: list[HistoryMessage] = [
+        {"role": "user", "text": "Koliki je iznos računa 2026-002?"},
+        {"role": "assistant", "text": "9.537,50 EUR"},
+    ]
+    ask(_client(handler), "abc", "A PDV?", history)
+
+    assert bodies == [{"question": "A PDV?", "history": history}]
