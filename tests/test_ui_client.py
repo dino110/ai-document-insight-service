@@ -1,10 +1,19 @@
 """Tests for the UI's API client. MockTransport replaces the network, so no server is needed."""
 
+import json
 from collections.abc import Callable
 
 import httpx2
 import pytest
-from api_client import ApiError, get_document, list_documents, make_client, upload
+from api_client import (
+    ASK_TIMEOUT_S,
+    ApiError,
+    ask,
+    get_document,
+    list_documents,
+    make_client,
+    upload,
+)
 
 Handler = Callable[[httpx2.Request], httpx2.Response]
 
@@ -22,6 +31,13 @@ DOCUMENT = {
 
 def _client(handler: Handler) -> httpx2.Client:
     return httpx2.Client(base_url="http://api.test", transport=httpx2.MockTransport(handler))
+
+
+def make_client_with(handler: Handler) -> httpx2.Client:
+    """Like make_client (30 s timeout), but with a mock network."""
+    return httpx2.Client(
+        base_url="http://api.test", timeout=30.0, transport=httpx2.MockTransport(handler)
+    )
 
 
 def test_make_client_points_at_base_url() -> None:
@@ -118,3 +134,64 @@ def test_non_json_error_falls_back_to_status_code() -> None:
         list_documents(_client(handler), "abc")
 
     assert (excinfo.value.status, excinfo.value.detail) == (502, "HTTP 502")
+
+
+ANSWER = {
+    "answer": "Ukupni iznos je 1.575,00 EUR [1].",
+    "found": True,
+    "sources": [
+        {
+            "document_id": "doc-1",
+            "filename": "racun-2026-001.pdf",
+            "page_number": 1,
+            "snippet": "UKUPNO ZA PLATITI 1.575,00 EUR",
+            "score": 0.98,
+        }
+    ],
+    "model": "gpt-6-luna",
+    "timings_ms": {"retrieval": 230.0, "generation": 1300.0},
+}
+
+
+def test_ask_posts_the_question_with_session_and_a_longer_timeout() -> None:
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(200, json=ANSWER)
+
+    result = ask(_client(handler), "abc", "Koliki je ukupni iznos?")
+
+    [request] = requests
+    assert (request.method, request.url.path) == ("POST", "/ask")
+    assert request.headers["X-Session-ID"] == "abc"
+    assert json.loads(request.read()) == {"question": "Koliki je ukupni iznos?"}
+    # The LLM call can take far longer than listing documents.
+    assert request.extensions["timeout"]["read"] == ASK_TIMEOUT_S
+    assert result["sources"][0]["page_number"] == 1
+    assert result["found"] is True
+
+
+def test_other_calls_keep_the_default_timeout() -> None:
+    timeouts: list[float] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        timeouts.append(request.extensions["timeout"]["read"])
+        return httpx2.Response(200, json=[])
+
+    list_documents(make_client_with(handler), "abc")
+
+    assert timeouts == [30.0]
+
+
+def test_ask_without_documents_raises_the_api_message() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(409, json={"detail": "No processed documents to search."})
+
+    with pytest.raises(ApiError) as excinfo:
+        ask(_client(handler), "abc", "Pitanje?")
+
+    assert (excinfo.value.status, excinfo.value.detail) == (
+        409,
+        "No processed documents to search.",
+    )
