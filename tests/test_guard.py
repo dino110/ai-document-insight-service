@@ -4,7 +4,7 @@ from typing import get_args
 
 import pytest
 
-from docinsight.qa.canned import CannedRoute, canned_answer
+from docinsight.qa.canned import CannedRoute, canned_answer, not_found_answer
 from docinsight.qa.guard import Language, Route, RuleBasedRouter, detect_language, normalize
 
 ROUTER = RuleBasedRouter()
@@ -33,6 +33,13 @@ CASES = [
     # Out of scope: requests for code
     pytest.param("Napiši mi Python funkciju za sortiranje", "out_of_scope", id="hr-python"),
     pytest.param("Write a SQL query that lists users", "out_of_scope", id="en-sql"),
+    # Out of scope: recipes, health advice, jokes
+    pytest.param("Daj mi recept za sarmu", "out_of_scope", id="hr-recept"),
+    pytest.param("How do I bake a chocolate cake?", "out_of_scope", id="en-bake"),
+    pytest.param("Imam temperaturu, što da radim?", "out_of_scope", id="hr-temperatura"),
+    pytest.param("Koji lijek za glavobolju?", "out_of_scope", id="hr-lijek-za"),
+    pytest.param("Should I see a doctor about my headache?", "out_of_scope", id="en-doctor"),
+    pytest.param("Ispričaj mi vic", "out_of_scope", id="hr-vic"),
     # Small talk: the whole question
     pytest.param("Bok!", "smalltalk", id="hr-bok"),
     pytest.param("hvala puno", "smalltalk", id="hr-hvala"),
@@ -56,6 +63,10 @@ CASES = [
     pytest.param("Napiši sažetak ugovora o djelu", "rag", id="trap-summary-not-code"),
     pytest.param("Kako da platim račun 2026-002?", "rag", id="trap-advice-without-legal"),
     pytest.param("Tko je predsjednik Hrvatske?", "rag", id="trap-general-knowledge"),
+    pytest.param("Koji je doktor potpisao ugovor?", "rag", id="trap-doctor-as-party"),
+    pytest.param("Reci mi saldo računa 2026-001", "rag", id="trap-saldo-not-joke"),
+    pytest.param("Kako se računa PDV na računu?", "rag", id="trap-kako-without-cooking"),
+    pytest.param("Pokriva li ugovor troškove liječenja?", "rag", id="trap-health-cost-fact"),
 ]
 
 
@@ -90,6 +101,9 @@ def test_normalize_drops_case_diacritics_and_punctuation() -> None:
         ("What is the total amount?", "en"),
         ("Bok!", "hr"),
         ("Hello", "en"),
+        ("Daj mi recept za sarmu", "hr"),  # no diacritics, short Croatian words
+        ("Ti si glupi kreten", "hr"),
+        ("Tell me a joke", "en"),  # "me" is English too
     ],
 )
 def test_detect_language(question: str, language: Language) -> None:
@@ -111,3 +125,11 @@ def test_every_canned_route_has_an_answer_in_both_languages(
 
 def test_canned_routes_are_all_routes_except_rag_and_meta() -> None:
     assert set(get_args(CannedRoute)) == set(get_args(Route)) - {"rag", "meta"}
+
+
+@pytest.mark.parametrize("language", get_args(Language))
+def test_not_found_answer_is_not_the_out_of_scope_answer(language: Language) -> None:
+    answer = not_found_answer(language)
+
+    assert answer.strip()
+    assert answer != canned_answer("out_of_scope", language)

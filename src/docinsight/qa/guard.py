@@ -85,8 +85,17 @@ _LEGAL_ADVICE = [
     ("legal.advice", rf"{_ADVICE}.*{_LEGAL}|{_LEGAL}.*{_ADVICE}"),
 ]
 
-# A request to produce code. Not the word "kod" alone: in Croatian it also means "at"
-# ("koliko dugujem kod Hinića?").
+# Health advice works like legal advice: asking what to do about a medical subject, or
+# asking for a cure. "Koji je doktor potpisao ugovor?" names a doctor but asks a fact: RAG.
+_MEDICAL = (
+    r"\b(bolest\w*|simptom\w*|lijek\w*|lijecnik\w*|doktor\w*|dijagnoz\w*|tablet[aeu]"
+    r"|temperatur\w*|glavobolj\w*|gripa|gripu|gripe|prehlad\w*|terapij\w*"
+    r"|illness|disease|symptoms?|medicine|medication|doctor|diagnos\w*|fever|headache"
+    r"|flu|cold|therapy)\b"
+)
+
+# Requests that are not questions about the documents. Not the word "kod" alone for code:
+# in Croatian it also means "at" ("koliko dugujem kod Hinića?").
 _OUT_OF_SCOPE = [
     (
         "scope.code",
@@ -94,6 +103,17 @@ _OUT_OF_SCOPE = [
         r"\b(code|programski kod|funkcij\w*|function|skript\w*|script|sql|regex"
         r"|python|javascript|typescript|html|css)\b",
     ),
+    (
+        "scope.recipe",
+        r"\b(recept\w*|recipes?)\b|\b(kako|how)\b.{0,15}\b(kuha\w*|ispec\w*|pece\w*|cook|bake)\b",
+    ),
+    (
+        "scope.medical",
+        rf"{_ADVICE}.*{_MEDICAL}|{_MEDICAL}.*{_ADVICE}"
+        r"|\b(lijek\w* (za|protiv)|medicine for|cure for|treatment for)\b",
+    ),
+    # "sala/salu/sale" only: "reci mi saldo računa" is a question for RAG.
+    ("scope.joke", r"\b(ispricaj|reci|tell)\b.{0,15}\b(vic\w*|sala|salu|sale|jokes?)\b"),
 ]
 
 # The whole question must be small talk: "Bok, koliki je iznos?" is a question for RAG.
@@ -120,9 +140,12 @@ _META_OWNER = (
     r"|sam\b.{0,20}\b(ucitao|ucitala|poslao|poslala|dodao|dodala))\b"
 )
 
-# One string reads better than a list of 25 one-word items.
+# One string reads better than a list of single words. Only words that are not English
+# too ("me" is left out: "tell me").
 _HR_WORDS = frozenset(
-    "je li koji koja koje sto kako koliko tko kada gdje sam imam trebam mogu "  # noqa: SIM905
+    "je li koji koja koje koliki kolika sto kako koliko tko kada kad gdje "  # noqa: SIM905
+    "ti si mi za da ne se su sam nisam nije imam imas trebam treba mogu moze "
+    "daj molim jesi ovo ovaj ova ili kao bi bih "
     "racun racuna ugovor ugovora iznos bok hvala dokument dokumente napisi".split()
 )
 
