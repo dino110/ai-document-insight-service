@@ -27,6 +27,10 @@ Route = Literal[
 ]
 
 
+# Labels of named entities: names from the spaCy models, the rest from rules.
+EntityLabel = Literal["PERSON", "ORG", "LOC", "MISC", "OIB", "IBAN", "DATE", "MONEY"]
+
+
 class DocumentOut(TypedDict):
     id: str
     filename: str
@@ -61,6 +65,13 @@ class SourceOut(TypedDict):
     score: float
 
 
+class EntityOut(TypedDict):
+    text: str
+    label: EntityLabel
+    start: int  # character offsets in the answer: answer[start:end] == text
+    end: int
+
+
 class HistoryMessage(TypedDict):
     role: Literal["user", "assistant"]
     text: str
@@ -72,7 +83,8 @@ class AskResponse(TypedDict):
     sources: list[SourceOut]
     route: Route
     model: str | None  # None when no LLM was called
-    timings_ms: dict[str, float]  # "retrieval", "generation"; empty unless route is "rag"
+    timings_ms: dict[str, float]  # "retrieval", "generation", "ner"; empty unless route is "rag"
+    entities: list[EntityOut]  # only for a found "rag" answer
 
 
 # (filename, content, content type), as handed over by st.file_uploader.

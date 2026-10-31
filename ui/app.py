@@ -6,8 +6,10 @@ Streamlit reruns this whole script on every interaction. State that must survive
 lives in st.session_state (per browser tab) and st.query_params (the URL, survives F5).
 """
 
+import html
 import itertools
 import os
+from collections.abc import Sequence
 from typing import Literal, TypedDict
 
 import httpx2
@@ -16,6 +18,8 @@ from api_client import (
     ApiError,
     AskResponse,
     DocumentOut,
+    EntityLabel,
+    EntityOut,
     HistoryMessage,
     SourceOut,
     ask,
@@ -30,6 +34,19 @@ API_URL = os.environ.get("API_URL", "http://localhost:8000")
 STATUS_LABELS = {"pending": "u obradi", "processed": "obrađen", "failed": "greška"}
 METHOD_LABELS = {"text_layer": "tekstualni sloj", "ocr": "OCR"}
 
+# Name in the legend and background colour of each entity label. Semi-transparent, so the
+# text stays readable in the light and the dark theme.
+ENTITY_STYLES: dict[EntityLabel, tuple[str, str]] = {
+    "PERSON": ("osoba", "rgba(66, 133, 244, 0.30)"),
+    "ORG": ("organizacija", "rgba(156, 39, 176, 0.28)"),
+    "LOC": ("mjesto", "rgba(0, 150, 136, 0.30)"),
+    "MISC": ("ostalo", "rgba(158, 158, 158, 0.35)"),
+    "OIB": ("OIB", "rgba(255, 152, 0, 0.35)"),
+    "IBAN": ("IBAN", "rgba(255, 87, 34, 0.30)"),
+    "DATE": ("datum", "rgba(76, 175, 80, 0.30)"),
+    "MONEY": ("iznos", "rgba(255, 235, 59, 0.45)"),
+}
+
 
 class ChatMessage(TypedDict):
     role: Literal["user", "assistant"]
@@ -38,6 +55,7 @@ class ChatMessage(TypedDict):
     caption: str  # model and timings under an answer, "" otherwise
     error: bool  # the API call failed; content is the error message
     route: str | None  # the API's route for an answer; None for questions and errors
+    entities: list[EntityOut]  # named entities in an answer, [] otherwise
 
 
 HISTORY_PAIRS = 3  # the API accepts at most 6 messages: 3 questions and 3 answers
@@ -166,13 +184,59 @@ def show_message(message: ChatMessage) -> None:
         if message["error"]:
             st.error(message["content"])
             return
-        st.markdown(_no_latex(message["content"]))
+        if message["role"] == "user":
+            st.markdown(_no_latex(message["content"]))  # no HTML: Streamlit escapes it
+        else:
+            # .get: messages kept in session_state from before this field existed have none.
+            entities = message.get("entities") or []
+            # Our <mark> tags need unsafe_allow_html; highlight() escapes all of the text.
+            st.markdown(highlight(message["content"], entities), unsafe_allow_html=True)
+            if entities:
+                st.caption(entity_legend(entities), unsafe_allow_html=True)
         for source in message["sources"]:
             label = f"{source['filename']}, str. {source['page_number']}"
             with st.expander(label, icon=":material/description:"):
                 st.text(source["snippet"])  # document text, not markup
         if message["caption"]:
             st.caption(message["caption"])
+
+
+def highlight(text: str, entities: Sequence[EntityOut]) -> str:
+    """The text as Markdown with HTML, every entity wrapped in a coloured <mark>.
+
+    The text comes from the LLM, which read the documents, so it is untrusted: every
+    piece is escaped and the <mark> tags are the only HTML in the result. Offsets refer
+    to the original text, so it is cut first and each piece is escaped afterwards.
+    """
+    parts: list[str] = []
+    position = 0
+    for entity in sorted(entities, key=lambda e: e["start"]):
+        start, end = entity["start"], entity["end"]
+        if start < position or text[start:end] != entity["text"]:
+            continue  # overlapping or stale offsets: leave that part as plain text
+        name, colour = ENTITY_STYLES[entity["label"]]
+        parts.append(_escape(text[position:start]))
+        parts.append(
+            f'<mark style="background-color: {colour}; color: inherit; padding: 0 2px;"'
+            f' title="{name}">{_escape(text[start:end])}</mark>'
+        )
+        position = end
+    parts.append(_escape(text[position:]))
+    return "".join(parts)
+
+
+def entity_legend(entities: Sequence[EntityOut]) -> str:
+    """The labels that occur in the answer, in a fixed order, each in its own colour."""
+    present = {entity["label"] for entity in entities}
+    return " ".join(
+        f'<mark style="background-color: {colour}; color: inherit; padding: 0 4px;">{name}</mark>'
+        for label, (name, colour) in ENTITY_STYLES.items()
+        if label in present
+    )
+
+
+def _escape(text: str) -> str:
+    return _no_latex(html.escape(text))
 
 
 def _no_latex(text: str) -> str:
@@ -249,7 +313,13 @@ def chat(session_id: str) -> None:
     # Built before the new question is added: the history is what came before it.
     history = conversation_history(st.session_state.messages)
     asked = ChatMessage(
-        role="user", content=question, sources=[], caption="", error=False, route=None
+        role="user",
+        content=question,
+        sources=[],
+        caption="",
+        error=False,
+        route=None,
+        entities=[],
     )
     st.session_state.messages.append(asked)
     show_message(asked)
@@ -264,6 +334,7 @@ def chat(session_id: str) -> None:
                 caption="",
                 error=True,
                 route=None,
+                entities=[],
             )
         else:
             reply = ChatMessage(
@@ -273,6 +344,7 @@ def chat(session_id: str) -> None:
                 caption=answer_caption(result),
                 error=False,
                 route=result["route"],
+                entities=result["entities"],
             )
     st.session_state.messages.append(reply)
     show_message(reply)
