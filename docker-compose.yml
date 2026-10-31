@@ -9,6 +9,9 @@ services:
       - "${API_PORT:-8000}:8000"
     environment:
       DOCINSIGHT_OCR_ENABLED: "true"
+      # Compose reads the key from .env in the project root; it is never written here or
+      # baked into the image (.env is in .dockerignore). Empty = no key: /ask answers 503.
+      DOCINSIGHT_OPENAI_API_KEY: ${DOCINSIGHT_OPENAI_API_KEY:-}
     volumes:
       # SQLite database and uploads survive container restarts and rebuilds.
       - ./data:/app/data
