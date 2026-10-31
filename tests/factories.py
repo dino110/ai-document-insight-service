@@ -1,5 +1,6 @@
 """Test inputs built in memory (PDFs, images) and a fake OCR engine."""
 
+from collections.abc import Sequence
 from io import BytesIO
 
 import numpy as np
@@ -12,7 +13,7 @@ from sqlmodel import Session
 from docinsight.indexing.chunking import contextualize, index_name
 from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.qa.generator import LlmAnswer
-from docinsight.qa.prompts import ContextChunk
+from docinsight.qa.prompts import ContextChunk, HistoryTurn
 from docinsight.storage.models import Document, DocumentChunk
 
 FAKE_OCR_TEXT = "Scanned invoice 2026-001, total 1.575,00 EUR"
@@ -70,9 +71,13 @@ class FakeGenerator:
     def __init__(self, answer: LlmAnswer | None = None) -> None:
         self.answer = answer or LlmAnswer(answer="Odgovor [1].", found=True, citations=[1])
         self.calls: list[tuple[str, list[ContextChunk]]] = []
+        self.histories: list[list[HistoryTurn]] = []  # one per call, like `calls`
 
-    def generate(self, question: str, contexts: list[ContextChunk]) -> LlmAnswer:
+    def generate(
+        self, question: str, contexts: list[ContextChunk], history: Sequence[HistoryTurn]
+    ) -> LlmAnswer:
         self.calls.append((question, contexts))
+        self.histories.append(list(history))
         return self.answer
 
 

@@ -2,6 +2,7 @@
 
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlmodel import Session
@@ -11,7 +12,7 @@ from docinsight.indexing.chunking import index_name
 from docinsight.indexing.embeddings import Embedder, EmbeddingError
 from docinsight.indexing.search import ScoredChunk, search_chunks
 from docinsight.qa.generator import AnswerGenerator, LlmRequestError
-from docinsight.qa.prompts import ContextChunk
+from docinsight.qa.prompts import ContextChunk, HistoryTurn
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ def answer_question(
     settings: Settings,
     document_ids: list[str] | None = None,
     top_k: int | None = None,
+    history: Sequence[HistoryTurn] = (),
 ) -> RagResult:
     """Answer ``question`` from the owner's documents, with the cited chunks as sources.
 
@@ -45,8 +47,9 @@ def answer_question(
     embedding or LLM call fails and LlmUnavailableError when no LLM is configured.
     """
     started = time.perf_counter()
+    query = search_text(question, history)
     try:
-        query_vector = embedder.embed_query(question)
+        query_vector = embedder.embed_query(query)
     except EmbeddingError as exc:
         # For the user it is the same failure as the LLM call: the answer service failed.
         raise LlmRequestError("Embedding the question failed") from exc
@@ -57,7 +60,7 @@ def answer_question(
         index_name(embedder.name),
         top_k or settings.top_k,
         document_ids,
-        query_text=question if settings.retrieval_mode == "hybrid" else None,
+        query_text=query if settings.retrieval_mode == "hybrid" else None,
     )
     retrieval_ms = _ms_since(started)
     if not hits:
@@ -68,7 +71,7 @@ def answer_question(
         for n, hit in enumerate(hits, start=1)
     ]
     started = time.perf_counter()
-    llm_answer = generator.generate(question, contexts)
+    llm_answer = generator.generate(question, contexts, history)
     generation_ms = _ms_since(started)
 
     sources = _cited_chunks(llm_answer.citations, hits) if llm_answer.found else []
@@ -88,6 +91,16 @@ def answer_question(
         model=generator.model,
         timings_ms={"retrieval": retrieval_ms, "generation": generation_ms},
     )
+
+
+def search_text(question: str, history: Sequence[HistoryTurn]) -> str:
+    """The text to search with: the previous question and this one.
+
+    "A PDV?" alone finds any invoice; "Koliki je iznos računa 2026-002? A PDV?" keeps the
+    invoice number in the search, without an extra LLM call to rewrite the question.
+    """
+    previous = next((turn.text for turn in reversed(history) if turn.role == "user"), None)
+    return f"{previous} {question}" if previous else question
 
 
 def _cited_chunks(citations: list[int], hits: list[ScoredChunk]) -> list[ScoredChunk]:

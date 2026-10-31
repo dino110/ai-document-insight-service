@@ -20,7 +20,8 @@ from docinsight.api.deps import (
 )
 from docinsight.qa.canned import canned_answer, meta_answer, not_found_answer
 from docinsight.qa.generator import LlmRequestError, LlmUnavailableError
-from docinsight.qa.guard import Language
+from docinsight.qa.guard import Language, route_conversation
+from docinsight.qa.prompts import HistoryTurn
 from docinsight.qa.rag import NoDocumentsError, answer_question
 from docinsight.schemas import AskRequest, AskResponse, SourceOut
 from docinsight.storage.models import Document
@@ -55,9 +56,17 @@ def ask(
 
     A plain `def`: the OpenAI calls block, so FastAPI runs this in its threadpool.
     """
-    decision = query_router.route(body.question)
-    # The route and the rule only: never the question.
-    logger.info("Question routed to %s (rule %s)", decision.route, decision.rule_id)
+    history = [HistoryTurn(message.role, message.text) for message in body.history]
+    decision = route_conversation(
+        query_router, body.question, [turn.text for turn in history if turn.role == "user"]
+    )
+    # The route, the rule and the history length only: never the question or the history.
+    logger.info(
+        "Question routed to %s (rule %s, %d history messages)",
+        decision.route,
+        decision.rule_id,
+        len(history),
+    )
     match decision.route:
         case "rag":
             pass  # below
@@ -83,6 +92,7 @@ def ask(
             settings,
             body.document_ids,
             body.top_k,
+            history,
         )
     except NoDocumentsError:
         raise HTTPException(status.HTTP_409_CONFLICT, "No processed documents to search.") from None

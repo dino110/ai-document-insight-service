@@ -61,6 +61,13 @@ class UploadResponse(BaseModel):
     documents: list[DocumentOut]
 
 
+class HistoryMessage(BaseModel):
+    """An earlier message of the conversation. The client keeps the history, not the server."""
+
+    role: Literal["user", "assistant"]
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+
 class AskRequest(BaseModel):
     """A question about the caller's processed documents."""
 
@@ -70,6 +77,8 @@ class AskRequest(BaseModel):
     # None searches all of the caller's documents; ids of other sessions simply match nothing.
     document_ids: list[str] | None = Field(default=None, min_length=1, max_length=50)
     top_k: int | None = Field(default=None, ge=1, le=20)
+    # The last messages before this question, oldest first: 3 questions and 3 answers.
+    history: list[HistoryMessage] = Field(default_factory=list, max_length=6)
 
 
 class SourceOut(BaseModel):

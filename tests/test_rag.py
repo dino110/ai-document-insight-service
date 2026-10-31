@@ -11,7 +11,8 @@ from docinsight.indexing.embeddings import EmbeddingError, HashingEmbedder
 from docinsight.indexing.search import ScoredChunk, search_chunks
 from docinsight.qa import rag as rag_module
 from docinsight.qa.generator import LlmAnswer, LlmRequestError
-from docinsight.qa.rag import NoDocumentsError, RagResult, answer_question
+from docinsight.qa.prompts import HistoryTurn
+from docinsight.qa.rag import NoDocumentsError, RagResult, answer_question, search_text
 
 EMBEDDER = HashingEmbedder()
 SETTINGS = Settings(top_k=3)
@@ -133,3 +134,40 @@ def test_dense_mode_does_not_use_the_question_text(
     answer_question("Tko je kupac?", "owner", session, EMBEDDER, generator, dense)
 
     assert received == ["Tko je kupac?", None]
+
+
+def test_search_text_adds_the_previous_question() -> None:
+    history = [
+        HistoryTurn("user", "Tko je kupac?"),
+        HistoryTurn("assistant", "Horvat d.o.o."),
+        HistoryTurn("user", "Koliki je iznos računa 2026-002?"),
+        HistoryTurn("assistant", "9.537,50 EUR"),
+    ]
+
+    assert search_text("A PDV?", history) == "Koliki je iznos računa 2026-002? A PDV?"
+    assert search_text("A PDV?", []) == "A PDV?"
+    assert search_text("A PDV?", [HistoryTurn("assistant", "Bok!")]) == "A PDV?"
+
+
+def test_history_reaches_the_search_and_the_generator(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    add_indexed_document(session, INVOICE, EMBEDDER)
+    received: list[str | None] = []
+
+    # Any: a spy that forwards whatever rag passes on to the real function.
+    def spy(*args: Any, **kwargs: Any) -> list[ScoredChunk]:
+        received.append(kwargs.get("query_text"))
+        return search_chunks(*args, **kwargs)
+
+    monkeypatch.setattr(rag_module, "search_chunks", spy)
+    generator = FakeGenerator()
+    history = [HistoryTurn("user", "Tko je kupac na računu 2026-001?")]
+
+    answer_question(
+        "A rok plaćanja?", "owner", session, EMBEDDER, generator, SETTINGS, history=history
+    )
+
+    assert received == ["Tko je kupac na računu 2026-001? A rok plaćanja?"]
+    assert generator.calls[0][0] == "A rok plaćanja?"
+    assert generator.histories == [history]

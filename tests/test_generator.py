@@ -17,7 +17,7 @@ from docinsight.qa.generator import (
     UnavailableGenerator,
     create_generator,
 )
-from docinsight.qa.prompts import ContextChunk
+from docinsight.qa.prompts import ContextChunk, HistoryTurn
 
 Handler = Callable[[httpx2.Request], httpx2.Response]
 CONTEXTS = [ContextChunk(1, "racun.pdf", 1, "Ukupno za platiti: 1.575,00 EUR")]
@@ -64,7 +64,7 @@ def test_parses_structured_answer_and_sends_settings() -> None:
         requests.append(request)
         return _answer(expected)
 
-    answer = _generator(handler).generate("Koliki je iznos?", CONTEXTS)
+    answer = _generator(handler).generate("Koliki je iznos?", CONTEXTS, [])
 
     assert answer == expected
     [request] = requests
@@ -86,7 +86,7 @@ def test_server_error_becomes_llm_request_error() -> None:
         return httpx2.Response(500, json={"error": {"message": "boom"}})
 
     with pytest.raises(LlmRequestError):
-        _generator(handler).generate("Pitanje?", CONTEXTS)
+        _generator(handler).generate("Pitanje?", CONTEXTS, [])
     assert len(requests) == 2  # first try + max_retries=1
 
 
@@ -95,7 +95,7 @@ def test_refusal_becomes_llm_request_error() -> None:
         return _response([{"type": "refusal", "refusal": "I can't help with that."}])
 
     with pytest.raises(LlmRequestError):
-        _generator(handler).generate("Pitanje?", CONTEXTS)
+        _generator(handler).generate("Pitanje?", CONTEXTS, [])
 
 
 def test_without_key_the_generator_is_unavailable() -> None:
@@ -104,7 +104,7 @@ def test_without_key_the_generator_is_unavailable() -> None:
     assert isinstance(generator, UnavailableGenerator)
     assert generator.model == "gpt-6-luna"
     with pytest.raises(LlmUnavailableError):
-        generator.generate("Pitanje?", CONTEXTS)
+        generator.generate("Pitanje?", CONTEXTS, [])
 
 
 def test_with_key_the_generator_uses_openai() -> None:
@@ -114,3 +114,17 @@ def test_with_key_the_generator_uses_openai() -> None:
 def test_openai_generator_needs_a_key() -> None:
     with pytest.raises(ValueError, match="OPENAI_API_KEY"):
         OpenAiGenerator(Settings())
+
+
+def test_history_is_sent_before_the_question() -> None:
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _answer(LlmAnswer(answer="PDV je 315,00 EUR [1].", found=True, citations=[1]))
+
+    history = [HistoryTurn("user", "Koliki je iznos?"), HistoryTurn("assistant", "1.575,00 EUR")]
+    _generator(handler).generate("A PDV?", CONTEXTS, history)
+
+    body = json.loads(requests[0].content)
+    assert [m["role"] for m in body["input"]] == ["system", "user", "assistant", "user"]

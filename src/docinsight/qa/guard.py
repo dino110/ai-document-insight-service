@@ -9,6 +9,7 @@ because refusing a real question about a document is worse than one API call.
 """
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -182,6 +183,28 @@ class RuleBasedRouter:
             if pattern.search(text) and self._meta_owner.search(text):
                 return RouteDecision("meta", rule_id, language)
         return RouteDecision("rag", None, language)
+
+
+_REJECTED: frozenset[Route] = frozenset({"rejected_injection", "rejected_abuse"})
+
+
+def route_conversation(
+    router: QueryRouter, question: str, earlier_questions: Sequence[str]
+) -> RouteDecision:
+    """Route ``question``, but reject the request if any earlier question would be rejected.
+
+    The history comes from the client, so it is checked like the question itself: an
+    injection hidden in an "earlier" message must not reach the LLM either. Other routes
+    of earlier questions do not matter; the answer is in the language of this question.
+    """
+    decision = router.route(question)
+    if decision.route in _REJECTED:
+        return decision
+    for text in earlier_questions:
+        earlier = router.route(text)
+        if earlier.route in _REJECTED:
+            return RouteDecision(earlier.route, earlier.rule_id, decision.language)
+    return decision
 
 
 def normalize(question: str) -> str:

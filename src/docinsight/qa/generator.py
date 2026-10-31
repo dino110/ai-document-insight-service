@@ -1,6 +1,7 @@
 """LLM answer generation behind a protocol, with structured output."""
 
 import logging
+from collections.abc import Sequence
 from typing import Protocol
 
 import httpx2
@@ -9,7 +10,7 @@ from openai.types.responses import EasyInputMessageParam, ResponseInputParam
 from pydantic import BaseModel, Field
 
 from docinsight.config import Settings
-from docinsight.qa.prompts import ContextChunk, build_messages
+from docinsight.qa.prompts import ContextChunk, HistoryTurn, build_messages
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,10 @@ class LlmAnswer(BaseModel):
 class AnswerGenerator(Protocol):
     model: str
 
-    def generate(self, question: str, contexts: list[ContextChunk]) -> LlmAnswer:
-        """Answer ``question`` from ``contexts`` only."""
+    def generate(
+        self, question: str, contexts: list[ContextChunk], history: Sequence[HistoryTurn]
+    ) -> LlmAnswer:
+        """Answer ``question`` from ``contexts`` only; ``history`` only explains the question."""
         ...
 
 
@@ -55,10 +58,12 @@ class OpenAiGenerator:
         self.model = settings.llm_model
         self._reasoning_effort = settings.llm_reasoning_effort
 
-    def generate(self, question: str, contexts: list[ContextChunk]) -> LlmAnswer:
+    def generate(
+        self, question: str, contexts: list[ContextChunk], history: Sequence[HistoryTurn]
+    ) -> LlmAnswer:
         messages: ResponseInputParam = [
             EasyInputMessageParam(role=m["role"], content=m["content"])
-            for m in build_messages(question, contexts)
+            for m in build_messages(question, contexts, history)
         ]
         try:
             response = self._client.responses.parse(
@@ -81,7 +86,9 @@ class UnavailableGenerator:
     def __init__(self, model: str) -> None:
         self.model = model
 
-    def generate(self, question: str, contexts: list[ContextChunk]) -> LlmAnswer:
+    def generate(
+        self, question: str, contexts: list[ContextChunk], history: Sequence[HistoryTurn]
+    ) -> LlmAnswer:
         raise LlmUnavailableError("No LLM is configured")
 
 
