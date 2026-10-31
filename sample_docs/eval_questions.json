@@ -1,0 +1,142 @@
+[
+  {
+    "id": "inv001-total",
+    "question": "Koliki je ukupni iznos računa 2026-001?",
+    "expected": ["1.575,00", "1575,00", "1575.00", "1,575.00"],
+    "document": "racun-2026-001.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv001-buyer",
+    "question": "Tko je kupac na računu 2026-001?",
+    "expected": ["Horvat d.o.o."],
+    "document": "racun-2026-001.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv001-net",
+    "question": "Kolika je osnovica (iznos bez PDV-a) na računu 2026-001?",
+    "expected": ["1.260,00", "1260,00", "1260.00", "1,260.00"],
+    "document": "racun-2026-001.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv001-issuer-oib",
+    "question": "What is the OIB (tax number) of the issuer of invoice 2026-001?",
+    "expected": ["28196001332"],
+    "document": "racun-2026-001.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv002-vat",
+    "question": "Koliki je PDV na računu 2026-002?",
+    "expected": ["1.907,50", "1907,50", "1907.50", "1,907.50"],
+    "document": "racun-2026-002.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv002-buyer-oib",
+    "question": "Koji je OIB kupca na računu 2026-002?",
+    "expected": ["17816184958"],
+    "document": "racun-2026-002.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv002-due-en",
+    "question": "When is invoice 2026-002 due?",
+    "expected": ["19.01.2026", "19.1.2026", "2026-01-19", "January 19, 2026", "19 January 2026"],
+    "document": "racun-2026-002.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv002-owe-paraphrase",
+    "question": "Koliko dugujem Hiniću?",
+    "expected": ["9.537,50", "9537,50", "9537.50", "9,537.50"],
+    "document": "racun-2026-002.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv003-issuer",
+    "question": "Tko je izdao račun 2026-003?",
+    "expected": ["Fabijanić Maloča d.d."],
+    "document": "racun-2026-003.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv003-total-en",
+    "question": "What is the total amount of invoice 2026-003?",
+    "expected": ["4.437,13", "4437,13", "4437.13", "4,437.13"],
+    "document": "racun-2026-003.pdf",
+    "page": 1
+  },
+  {
+    "id": "inv003-due-paraphrase",
+    "question": "Do kada moram platiti račun tvrtke Fabijanić Maloča?",
+    "expected": ["20.02.2026", "20.2.2026", "2026-02-20"],
+    "document": "racun-2026-003.pdf",
+    "page": 1
+  },
+  {
+    "id": "c01-fee",
+    "question": "Kolika je naknada prema ugovoru o djelu s Elvisom Antićem?",
+    "expected": ["6.300,00", "6300,00", "6300.00", "6,300.00"],
+    "document": "ugovor-01.pdf",
+    "page": 1
+  },
+  {
+    "id": "c01-deadline",
+    "question": "Do kada izvršitelj mora predati djelo prema ugovoru s tvrtkom Načinović d.o.o.?",
+    "expected": ["29.10.2026", "2026-10-29"],
+    "document": "ugovor-01.pdf",
+    "page": 1
+  },
+  {
+    "id": "c01-court-page2",
+    "question": "Koji je sud nadležan za sporove iz ugovora o djelu s Elvisom Antićem?",
+    "expected": ["Zagreb"],
+    "document": "ugovor-01.pdf",
+    "page": 2
+  },
+  {
+    "id": "c01-client-en",
+    "question": "Who is the client in the contract with Elvis Antić?",
+    "expected": ["Načinović d.o.o."],
+    "document": "ugovor-01.pdf",
+    "page": 1
+  },
+  {
+    "id": "c02-fee-en",
+    "question": "What is the fee in the service agreement with Fuma Madunić?",
+    "expected": ["8.800,00", "8800,00", "8800.00", "8,800.00"],
+    "document": "ugovor-02.pdf",
+    "page": 1
+  },
+  {
+    "id": "c02-start-hr",
+    "question": "Kada izvršitelj počinje s radom prema ugovoru s tvrtkom Šalić d.o.o.?",
+    "expected": ["20.02.2026", "20.2.2026", "2026-02-20", "February 20, 2026", "20 February 2026"],
+    "document": "ugovor-02.pdf",
+    "page": 1
+  },
+  {
+    "id": "none-interest",
+    "question": "Koja je kamatna stopa za zakašnjelo plaćanje?",
+    "expected": null,
+    "document": null,
+    "page": null
+  },
+  {
+    "id": "none-iban-en",
+    "question": "What is the IBAN of the issuer of invoice 2026-001?",
+    "expected": null,
+    "document": null,
+    "page": null
+  },
+  {
+    "id": "none-director",
+    "question": "Tko je direktor tvrtke Car d.o.o.?",
+    "expected": null,
+    "document": null,
+    "page": null
+  }
+]
