@@ -120,3 +120,54 @@ def test_faiss_and_numpy_find_the_same_chunks(session: Session) -> None:
         return sorted((-round(r.score, 5), r.text) for r in results)
 
     assert ranked(with_faiss) == ranked(with_numpy)
+
+
+# --- Hybrid search ---
+
+INVOICES = [
+    "Račun br. INV-7781. Datum dospijeća: 19.01.2026. Ukupno za platiti: 9.537,50 EUR",
+    "Račun br. INV-1203. Datum dospijeća: 29.03.2026. Ukupno za platiti: 1.575,00 EUR",
+    "Ugovor o djelu: izrada mobilne aplikacije, naknada po fazama",
+]
+
+
+def test_hybrid_finds_an_identifier_the_embedding_misses(session: Session, use_faiss: bool) -> None:
+    add_indexed_document(session, INVOICES, EMBEDDER)
+    # Stand-in for a semantic model that "understands" the question but ignores the
+    # number: its vector points at the contract, not at invoice INV-7781.
+    misleading_vector = EMBEDDER.embed_query(INVOICES[2])
+
+    def first_page(query_text: str | None) -> int:
+        [best, *_] = search_chunks(
+            session,
+            "owner",
+            misleading_vector,
+            EMBEDDER.name,
+            3,
+            query_text=query_text,
+            use_faiss=use_faiss,
+        )
+        return best.page_number
+
+    assert first_page(None) == 3  # dense only: the contract
+    assert first_page("Kada dospijeva račun INV-7781?") == 1  # hybrid: the right invoice
+
+
+def test_hybrid_scores_are_between_zero_and_one(session: Session, use_faiss: bool) -> None:
+    add_indexed_document(session, INVOICES, EMBEDDER)
+    question = "Ukupno za platiti INV-1203"
+
+    results = search_chunks(
+        session,
+        "owner",
+        EMBEDDER.embed_query(question),
+        EMBEDDER.name,
+        5,
+        query_text=question,
+        use_faiss=use_faiss,
+    )
+
+    assert len(results) == 3  # chunks without a shared token still come from the dense list
+    assert results[0].page_number == 2
+    assert results[0].score == pytest.approx(1.0)  # first in both rankings
+    assert all(0 < r.score <= 1 for r in results)

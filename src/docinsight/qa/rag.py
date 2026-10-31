@@ -50,7 +50,13 @@ def answer_question(
         # For the user it is the same failure as the LLM call: the answer service failed.
         raise LlmRequestError("Embedding the question failed") from exc
     hits = search_chunks(
-        session, owner_id, query_vector, embedder.name, top_k or settings.top_k, document_ids
+        session,
+        owner_id,
+        query_vector,
+        embedder.name,
+        top_k or settings.top_k,
+        document_ids,
+        query_text=question if settings.retrieval_mode == "hybrid" else None,
     )
     retrieval_ms = _ms_since(started)
     if not hits:

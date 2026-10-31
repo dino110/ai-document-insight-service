@@ -2,8 +2,6 @@
 
 import hashlib
 import logging
-import re
-import unicodedata
 from typing import Protocol
 
 import httpx2
@@ -12,6 +10,7 @@ from numpy.typing import NDArray
 from openai import OpenAI, OpenAIError, omit
 
 from docinsight.config import Settings
+from docinsight.indexing.lexical import tokenize
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +51,7 @@ class HashingEmbedder:
     def embed_documents(self, texts: list[str]) -> NDArray[np.float32]:
         vectors = np.zeros((len(texts), self.dim), dtype=np.float32)
         for row, text in enumerate(texts):
-            for token in _TOKEN.findall(_fold(text)):
+            for token in tokenize(text):
                 # blake2b, not hash(): Python's hash() of a str changes with every process
                 # (PYTHONHASHSEED), so stored vectors would not match after a restart.
                 value = int.from_bytes(hashlib.blake2b(token.encode(), digest_size=8).digest())
@@ -124,16 +123,6 @@ def create_embedder(settings: Settings) -> Embedder:
     embedder: Embedder = OpenAiEmbedder(settings) if backend == "openai" else HashingEmbedder()
     logger.info("Embedder: %s %s", backend, embedder.name)
     return embedder
-
-
-_TOKEN = re.compile(r"\w+")
-
-
-def _fold(text: str) -> str:
-    """Lowercase and drop diacritics, so "RAČUN" (typed) matches "RACUN" (OCR)."""
-    # NFKD splits "č" into "c" + a combining caron, but "đ" is its own letter.
-    decomposed = unicodedata.normalize("NFKD", text.lower().replace("đ", "d"))
-    return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
 def _l2_normalize(vectors: NDArray[np.float32]) -> NDArray[np.float32]:

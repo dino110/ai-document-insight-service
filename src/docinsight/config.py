@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=800, ge=200)
     chunk_overlap: int = Field(default=150, ge=0)
     top_k: int = Field(default=5, ge=1, le=20)
+    # "hybrid": embeddings fused with BM25 (finds exact identifiers); "dense": embeddings only.
+    retrieval_mode: Literal["hybrid", "dense"] = "hybrid"
 
     openai_api_key: SecretStr | None = None
     llm_model: str = "gpt-6-luna"
