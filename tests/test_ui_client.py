@@ -148,6 +148,7 @@ ANSWER = {
             "score": 0.98,
         }
     ],
+    "route": "rag",
     "model": "gpt-6-luna",
     "timings_ms": {"retrieval": 230.0, "generation": 1300.0},
 }
@@ -195,3 +196,21 @@ def test_ask_without_documents_raises_the_api_message() -> None:
         409,
         "No processed documents to search.",
     )
+
+
+def test_ask_returns_a_canned_answer_without_model() -> None:
+    canned = {
+        "answer": "Ne dajem pravne savjete.",
+        "found": False,
+        "sources": [],
+        "route": "legal_advice",
+        "model": None,
+        "timings_ms": {},
+    }
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, json=canned)
+
+    result = ask(_client(handler), "abc", "Trebam li tužiti dobavljača?")
+
+    assert (result["route"], result["model"], result["timings_ms"]) == ("legal_advice", None, {})

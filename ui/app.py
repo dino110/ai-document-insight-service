@@ -173,7 +173,12 @@ def _no_latex(text: str) -> str:
     return text.replace("$", "\\$")
 
 
-def _answer_caption(result: AskResponse) -> str:
+def answer_caption(result: AskResponse) -> str:
+    """How the answer was produced: the model and timings, or that no AI model was used."""
+    if result["route"] == "meta":
+        return "Popis iz baze · odgovoreno bez AI modela"
+    if result["route"] != "rag" or result["model"] is None:
+        return "Predefinirani odgovor · odgovoreno bez AI modela"
     timings = result["timings_ms"]
     return (
         f"{result['model']} · pretraga {timings.get('retrieval', 0) / 1000:.1f} s"
@@ -210,7 +215,7 @@ def chat(session_id: str) -> None:
                 role="assistant",
                 content=result["answer"],
                 sources=result["sources"],
-                caption=_answer_caption(result),
+                caption=answer_caption(result),
                 error=False,
             )
     st.session_state.messages.append(reply)

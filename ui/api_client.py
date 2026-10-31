@@ -14,6 +14,16 @@ SESSION_HEADER = "X-Session-ID"
 ASK_TIMEOUT_S = 90.0
 
 DocumentStatus = Literal["pending", "processed", "failed"]
+# How the API produced an answer: "rag" = search + LLM, the rest without an LLM.
+Route = Literal[
+    "rejected_injection",
+    "rejected_abuse",
+    "legal_advice",
+    "out_of_scope",
+    "smalltalk",
+    "meta",
+    "rag",
+]
 
 
 class DocumentOut(TypedDict):
@@ -54,8 +64,9 @@ class AskResponse(TypedDict):
     answer: str
     found: bool  # False: the documents do not contain the answer (and sources is empty)
     sources: list[SourceOut]
-    model: str
-    timings_ms: dict[str, float]  # "retrieval", "generation"
+    route: Route
+    model: str | None  # None when no LLM was called
+    timings_ms: dict[str, float]  # "retrieval", "generation"; empty unless route is "rag"
 
 
 # (filename, content, content type), as handed over by st.file_uploader.
