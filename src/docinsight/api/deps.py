@@ -11,6 +11,7 @@ from docinsight.config import Settings, get_settings
 from docinsight.extraction.ocr import OcrEngine
 from docinsight.indexing.embeddings import Embedder
 from docinsight.qa.generator import AnswerGenerator
+from docinsight.qa.guard import QueryRouter
 from docinsight.storage.db import get_engine, get_session
 
 # The session id becomes a directory name, so only allow characters that cannot form a path.
@@ -49,9 +50,16 @@ def get_generator(request: Request) -> AnswerGenerator:
     return generator
 
 
+def get_router(request: Request) -> QueryRouter:
+    """The question router created once in lifespan; tests replace it via dependency_overrides."""
+    router: QueryRouter = request.app.state.router
+    return router
+
+
 DbSession = Annotated[Session, Depends(get_session)]
 DbEngine = Annotated[Engine, Depends(get_engine)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 OcrDep = Annotated[OcrEngine, Depends(get_ocr_engine)]
 EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
 GeneratorDep = Annotated[AnswerGenerator, Depends(get_generator)]
+RouterDep = Annotated[QueryRouter, Depends(get_router)]

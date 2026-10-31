@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from docinsight.qa.guard import Route
+
 DocumentStatus = Literal["pending", "processed", "failed"]
 
 
@@ -81,10 +83,13 @@ class SourceOut(BaseModel):
 
 
 class AskResponse(BaseModel):
-    """The answer, its sources and how long retrieval and generation took."""
+    """The answer, how it was produced, its sources and how long each step took."""
 
     answer: str
+    # True when the answer comes from the caller's documents (or their list, for "meta").
     found: bool
     sources: list[SourceOut]
-    model: str
-    timings_ms: dict[str, float]
+    # "rag" = search and LLM; other routes are answered locally, without either.
+    route: Route
+    model: str | None  # None when no LLM was called
+    timings_ms: dict[str, float]  # only the steps that ran: empty unless route is "rag"

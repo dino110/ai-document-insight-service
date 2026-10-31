@@ -13,6 +13,7 @@ from docinsight.config import get_settings
 from docinsight.extraction.ocr import create_ocr_engine
 from docinsight.indexing.embeddings import create_embedder
 from docinsight.qa.generator import create_generator
+from docinsight.qa.guard import RuleBasedRouter
 from docinsight.storage.db import make_engine
 
 
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Cheap: API clients, no models to load.
     app.state.embedder = create_embedder(settings)
     app.state.generator = create_generator(settings)
+    app.state.router = RuleBasedRouter()  # compiles its patterns once
     yield
     engine.dispose()
 

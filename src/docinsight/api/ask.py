@@ -1,20 +1,29 @@
-"""Question answering over the caller's documents."""
+"""Question answering over the caller's documents.
+
+A local router decides first: most questions go to RAG (search + LLM), the rest get a
+canned answer or the document list without any embedding or LLM call.
+"""
 
 import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlmodel import col, select
 
 from docinsight.api.deps import (
     DbSession,
     EmbedderDep,
     GeneratorDep,
+    RouterDep,
     SettingsDep,
     require_session_id,
 )
+from docinsight.qa.canned import canned_answer, meta_answer, not_found_answer
 from docinsight.qa.generator import LlmRequestError, LlmUnavailableError
+from docinsight.qa.guard import Language
 from docinsight.qa.rag import NoDocumentsError, answer_question
 from docinsight.schemas import AskRequest, AskResponse, SourceOut
+from docinsight.storage.models import Document
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +36,7 @@ SNIPPET_CHARS = 300
     "/ask",
     response_model=AskResponse,
     responses={
+        # Only on the "rag" route: the other routes need neither documents nor an LLM.
         status.HTTP_409_CONFLICT: {"description": "No processed documents to search."},
         status.HTTP_502_BAD_GATEWAY: {"description": "The embedding or LLM call failed."},
         status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "No LLM is configured."},
@@ -38,12 +48,31 @@ def ask(
     db: DbSession,
     embedder: EmbedderDep,
     generator: GeneratorDep,
+    query_router: RouterDep,
     settings: SettingsDep,
 ) -> AskResponse:
     """Answer a question from the caller's documents only, citing file and page.
 
     A plain `def`: the OpenAI calls block, so FastAPI runs this in its threadpool.
     """
+    decision = query_router.route(body.question)
+    # The route and the rule only: never the question.
+    logger.info("Question routed to %s (rule %s)", decision.route, decision.rule_id)
+    match decision.route:
+        case "rag":
+            pass  # below
+        case "meta":
+            return _document_list(db, owner_id, decision.language)
+        case canned_route:  # mypy narrows this to the canned routes
+            return AskResponse(
+                answer=canned_answer(canned_route, decision.language),
+                found=False,
+                sources=[],
+                route=canned_route,
+                model=None,
+                timings_ms={},
+            )
+
     try:
         result = answer_question(
             body.question,
@@ -68,7 +97,9 @@ def ask(
         ) from None
 
     return AskResponse(
-        answer=result.answer,
+        # The model's own "not found" text could suggest the question was valid but
+        # unanswerable, or out of scope; one fixed text covers both honestly.
+        answer=result.answer if result.found else not_found_answer(decision.language),
         found=result.found,
         sources=[
             SourceOut(
@@ -80,8 +111,26 @@ def ask(
             )
             for source in result.sources
         ],
+        route="rag",
         model=result.model,
         timings_ms=result.timings_ms,
+    )
+
+
+def _document_list(db: DbSession, owner_id: str, language: Language) -> AskResponse:
+    """The "meta" route: the caller's documents from the database, no search, no LLM."""
+    rows = db.exec(
+        select(Document.filename, Document.status)
+        .where(Document.owner_id == owner_id)
+        .order_by(col(Document.created_at))
+    ).all()
+    return AskResponse(
+        answer=meta_answer([(filename, status) for filename, status in rows], language),
+        found=True,
+        sources=[],
+        route="meta",
+        model=None,
+        timings_ms={},
     )
 
 

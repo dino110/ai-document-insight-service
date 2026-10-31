@@ -146,7 +146,7 @@ def ask(client: httpx2.Client, session_id: str, question: EvalQuestion) -> Quest
         retrieval_ms=float(timings.get("retrieval", 0.0)),
         generation_ms=float(timings.get("generation", 0.0)),
         total_ms=total_ms,
-        model=str(body.get("model", "")),
+        model=str(body.get("model") or ""),  # None when no LLM was called
     )
 
 
