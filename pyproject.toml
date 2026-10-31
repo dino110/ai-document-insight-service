@@ -84,7 +84,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["ui"]   # tests can `import api_client`, like Streamlit does
+pythonpath = ["ui", "scripts"]   # tests can `import api_client` (as Streamlit does) and scripts
 addopts = "-ra"
 markers = ["slow: treba pravi OCR (Docker)"]
 filterwarnings = [
