@@ -5,6 +5,7 @@ canned answer or the document list without any embedding or LLM call.
 """
 
 import logging
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,6 +14,7 @@ from sqlmodel import col, select
 from docinsight.api.deps import (
     DbSession,
     EmbedderDep,
+    EntityExtractorDep,
     GeneratorDep,
     RouterDep,
     SettingsDep,
@@ -23,7 +25,7 @@ from docinsight.qa.generator import LlmRequestError, LlmUnavailableError
 from docinsight.qa.guard import Language, route_conversation
 from docinsight.qa.prompts import HistoryTurn
 from docinsight.qa.rag import NoDocumentsError, answer_question
-from docinsight.schemas import AskRequest, AskResponse, SourceOut
+from docinsight.schemas import AskRequest, AskResponse, EntityOut, SourceOut
 from docinsight.storage.models import Document
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ def ask(
     embedder: EmbedderDep,
     generator: GeneratorDep,
     query_router: RouterDep,
+    entity_extractor: EntityExtractorDep,
     settings: SettingsDep,
 ) -> AskResponse:
     """Answer a question from the caller's documents only, citing file and page.
@@ -106,6 +109,17 @@ def ask(
             status.HTTP_502_BAD_GATEWAY, "The answer service failed, try again."
         ) from None
 
+    timings_ms = dict(result.timings_ms)
+    entities: list[EntityOut] = []
+    if result.found:
+        # The language of the router, so the answer is analysed by the model of its language.
+        started = time.perf_counter()
+        entities = [
+            EntityOut(text=e.text, label=e.label, start=e.start, end=e.end)
+            for e in entity_extractor.extract(result.answer, decision.language)
+        ]
+        timings_ms["ner"] = round((time.perf_counter() - started) * 1000, 1)
+
     return AskResponse(
         # The model's own "not found" text could suggest the question was valid but
         # unanswerable, or out of scope; one fixed text covers both honestly.
@@ -123,7 +137,8 @@ def ask(
         ],
         route="rag",
         model=result.model,
-        timings_ms=result.timings_ms,
+        timings_ms=timings_ms,
+        entities=entities,
     )
 
 

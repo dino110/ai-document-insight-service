@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from docinsight.nlp.ner import EntityLabel
 from docinsight.qa.guard import Route
 
 DocumentStatus = Literal["pending", "processed", "failed"]
@@ -91,6 +92,15 @@ class SourceOut(BaseModel):
     score: float
 
 
+class EntityOut(BaseModel):
+    """A named entity in the answer: answer[start:end] == text (character offsets)."""
+
+    text: str
+    label: EntityLabel
+    start: int
+    end: int
+
+
 class AskResponse(BaseModel):
     """The answer, how it was produced, its sources and how long each step took."""
 
@@ -102,3 +112,5 @@ class AskResponse(BaseModel):
     route: Route
     model: str | None  # None when no LLM was called
     timings_ms: dict[str, float]  # only the steps that ran: empty unless route is "rag"
+    # Only for a found "rag" answer; canned, document-list and "not found" texts have none.
+    entities: list[EntityOut] = Field(default_factory=list)

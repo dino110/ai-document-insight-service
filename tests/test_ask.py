@@ -10,11 +10,13 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 from numpy.typing import NDArray
 
-from docinsight.api.deps import get_embedder, get_generator
+from docinsight.api.deps import get_embedder, get_entity_extractor, get_generator
 from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.main import app
+from docinsight.nlp.ner import Entity, rule_entities
 from docinsight.qa.canned import CannedRoute, canned_answer, not_found_answer
 from docinsight.qa.generator import LlmAnswer, LlmRequestError, UnavailableGenerator
+from docinsight.qa.guard import Language
 from docinsight.qa.prompts import ContextChunk, HistoryTurn
 
 INVOICE_TEXT = "Racun 2026-001. Kupac: Horvat d.o.o. Ukupno za platiti: 1.575,00 EUR"
@@ -46,7 +48,7 @@ def test_answer_cites_file_and_page(client: TestClient, generator: FakeGenerator
     assert body["answer"] == "1.575,00 EUR [1]"
     assert body["found"] is True
     assert body["model"] == "fake-llm"
-    assert set(body["timings_ms"]) == {"retrieval", "generation"}
+    assert set(body["timings_ms"]) == {"retrieval", "generation", "ner"}
     assert body["route"] == "rag"
     [source] = body["sources"]
     assert source["document_id"] == document_id
@@ -219,6 +221,7 @@ def test_canned_route_answers_without_search_or_llm(
         "route": route,
         "model": None,
         "timings_ms": {},
+        "entities": [],
     }
     assert generator.calls == []
     assert counting_embedder.queries == 0
@@ -249,6 +252,7 @@ def test_meta_lists_only_the_callers_documents(
     )
     assert body["found"] is True
     assert (body["model"], body["timings_ms"], body["sources"]) == (None, {}, [])
+    assert body["entities"] == []
     assert generator.calls == []
     assert counting_embedder.queries == 0
 
@@ -352,3 +356,76 @@ def test_log_has_the_history_length_but_not_its_text(
 
     assert "2 history messages" in caplog.text
     assert "9.537,50" not in caplog.text
+
+
+# --- Entities in the answer -----------------------------------------------------
+
+
+class RecordingExtractor:
+    """Satisfies EntityExtractor: the real rules, plus the languages it was called with."""
+
+    name = "recording"
+
+    def __init__(self) -> None:
+        self.languages: list[Language] = []
+
+    def extract(self, text: str, language: Language) -> list[Entity]:
+        self.languages.append(language)
+        return rule_entities(text)
+
+
+@pytest.fixture
+def extractor(client: TestClient) -> RecordingExtractor:
+    recording = RecordingExtractor()
+    app.dependency_overrides[get_entity_extractor] = lambda: recording
+    return recording
+
+
+def test_found_answer_has_entities_with_offsets(
+    client: TestClient, generator: FakeGenerator, extractor: RecordingExtractor
+) -> None:
+    _upload(client, "racun-2026-001.pdf", INVOICE_TEXT)
+    answer = "Ukupno 1.575,00 EUR, kupac Horvat d.o.o., OIB 99083863799 [1]"
+    generator.answer = LlmAnswer(answer=answer, found=True, citations=[1])
+
+    body = _ask(client, {"question": "Koliki je iznos i tko je kupac?"}).json()
+
+    assert body["answer"] == answer
+    assert [(e["text"], e["label"]) for e in body["entities"]] == [
+        ("1.575,00 EUR", "MONEY"),
+        ("99083863799", "OIB"),
+    ]
+    assert all(answer[e["start"] : e["end"]] == e["text"] for e in body["entities"])
+    assert "ner" in body["timings_ms"]
+    assert extractor.languages == ["hr"]
+
+
+def test_extractor_gets_the_language_of_the_router(
+    client: TestClient, extractor: RecordingExtractor
+) -> None:
+    _upload(client, "racun.pdf", INVOICE_TEXT)
+
+    _ask(client, {"question": "What is the total amount?"})
+
+    assert extractor.languages == ["en"]
+
+
+def test_not_found_answer_has_no_entities(
+    client: TestClient, generator: FakeGenerator, extractor: RecordingExtractor
+) -> None:
+    _upload(client, "racun.pdf", INVOICE_TEXT)
+    # The model's own text names an amount, but the user sees the fixed "not found" text.
+    generator.answer = LlmAnswer(answer="Nije 1.575,00 EUR.", found=False, citations=[])
+
+    body = _ask(client, {"question": "Koja je kamatna stopa?"}).json()
+
+    assert body["entities"] == []
+    assert "ner" not in body["timings_ms"]
+    assert extractor.languages == []
+
+
+def test_canned_route_does_not_run_ner(client: TestClient, extractor: RecordingExtractor) -> None:
+    body = _ask(client, {"question": "Bok!"}).json()
+
+    assert (body["route"], body["entities"]) == ("smalltalk", [])
+    assert extractor.languages == []

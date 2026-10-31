@@ -10,6 +10,7 @@ from sqlmodel import Session
 from docinsight.config import Settings, get_settings
 from docinsight.extraction.ocr import OcrEngine
 from docinsight.indexing.embeddings import Embedder
+from docinsight.nlp.ner import EntityExtractor
 from docinsight.qa.generator import AnswerGenerator
 from docinsight.qa.guard import QueryRouter
 from docinsight.storage.db import get_engine, get_session
@@ -56,6 +57,12 @@ def get_router(request: Request) -> QueryRouter:
     return router
 
 
+def get_entity_extractor(request: Request) -> EntityExtractor:
+    """The NER extractor created once in lifespan; tests replace it via dependency_overrides."""
+    extractor: EntityExtractor = request.app.state.entity_extractor
+    return extractor
+
+
 DbSession = Annotated[Session, Depends(get_session)]
 DbEngine = Annotated[Engine, Depends(get_engine)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -63,3 +70,4 @@ OcrDep = Annotated[OcrEngine, Depends(get_ocr_engine)]
 EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
 GeneratorDep = Annotated[AnswerGenerator, Depends(get_generator)]
 RouterDep = Annotated[QueryRouter, Depends(get_router)]
+EntityExtractorDep = Annotated[EntityExtractor, Depends(get_entity_extractor)]

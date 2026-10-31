@@ -12,6 +12,7 @@ from docinsight.api import ask, documents, health
 from docinsight.config import get_settings
 from docinsight.extraction.ocr import create_ocr_engine
 from docinsight.indexing.embeddings import create_embedder
+from docinsight.nlp.ner import create_entity_extractor
 from docinsight.qa.generator import create_generator
 from docinsight.qa.guard import RuleBasedRouter
 from docinsight.storage.db import make_engine
@@ -31,6 +32,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.embedder = create_embedder(settings)
     app.state.generator = create_generator(settings)
     app.state.router = RuleBasedRouter()  # compiles its patterns once
+    # Loading the spaCy models takes about a second.
+    app.state.entity_extractor = await run_in_threadpool(create_entity_extractor, settings)
     yield
     engine.dispose()
 

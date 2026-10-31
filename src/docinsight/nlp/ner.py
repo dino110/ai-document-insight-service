@@ -7,6 +7,7 @@ which no rule can. When both mark the same text, the rule wins: an OIB is never 
 
 import logging
 import re
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -111,13 +112,18 @@ class SpacyEntityExtractor:
 
     def __init__(self, pipelines: Mapping[Language, NerPipeline]) -> None:
         self._pipelines = pipelines
+        # The pipelines are shared by the threadpool and spaCy does not promise that one
+        # pipeline can run in several threads at once; a call takes milliseconds.
+        self._lock = threading.Lock()
 
     def extract(self, text: str, language: Language) -> list[Entity]:
         rules = rule_entities(text)
         citations = [match.span() for match in _CITATION.finditer(text)]
+        with self._lock:
+            doc = self._pipelines[language](text)
         model = [
             Entity(text[ent.start_char : ent.end_char], label, ent.start_char, ent.end_char)
-            for ent in self._pipelines[language](text).ents
+            for ent in doc.ents
             if (label := _MODEL_LABELS.get(ent.label_)) is not None
         ]
         useful = [

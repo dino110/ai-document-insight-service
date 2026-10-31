@@ -30,6 +30,8 @@ def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("DOCINSIGHT_DATA_DIR", str(tmp_path))
     # API tests use FakeOcrEngine; never load real OCR models in lifespan, even in Docker.
     monkeypatch.setenv("DOCINSIGHT_OCR_ENABLED", "false")
+    # Rules only: loading the spaCy models in every API test would add a second each.
+    monkeypatch.setenv("DOCINSIGHT_NER_BACKEND", "rules")
     return tmp_path
 
 
