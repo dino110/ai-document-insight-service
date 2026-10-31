@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from sqlmodel import Session
 
 from docinsight.config import Settings
+from docinsight.indexing.chunking import index_name
 from docinsight.indexing.embeddings import Embedder, EmbeddingError
 from docinsight.indexing.search import ScoredChunk, search_chunks
 from docinsight.qa.generator import AnswerGenerator, LlmRequestError
@@ -53,7 +54,7 @@ def answer_question(
         session,
         owner_id,
         query_vector,
-        embedder.name,
+        index_name(embedder.name),
         top_k or settings.top_k,
         document_ids,
         query_text=question if settings.retrieval_mode == "hybrid" else None,
@@ -63,7 +64,7 @@ def answer_question(
         raise NoDocumentsError("No processed documents to search")
 
     contexts = [
-        ContextChunk(n, hit.filename, hit.page_number, hit.text)
+        ContextChunk(n, hit.filename, hit.page_number, hit.text, hit.intro)
         for n, hit in enumerate(hits, start=1)
     ]
     started = time.perf_counter()

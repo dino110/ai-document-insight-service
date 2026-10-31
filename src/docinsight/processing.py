@@ -12,7 +12,7 @@ from sqlmodel import Session
 from docinsight.config import Settings
 from docinsight.extraction.ocr import OcrEngine, OcrUnavailableError
 from docinsight.extraction.service import PageText, extract_document
-from docinsight.indexing.chunking import chunk_pages
+from docinsight.indexing.chunking import chunk_pages, contextualize, document_intro, index_name
 from docinsight.indexing.embeddings import Embedder
 from docinsight.storage.models import Document, DocumentChunk, DocumentPage
 
@@ -39,15 +39,21 @@ def _error_message(exc: Exception) -> str:
 def build_chunks(
     document: Document, pages: list[PageText], embedder: Embedder, settings: Settings
 ) -> list[DocumentChunk]:
-    """Split the pages into chunks and embed them all in one call (batched by the embedder)."""
+    """Split the pages into chunks and embed them all in one call (batched by the embedder).
+
+    The embedded text carries the document header; the stored text is the chunk alone.
+    """
     try:
         chunks = chunk_pages(
             [(page.page, page.text) for page in pages], settings.chunk_size, settings.chunk_overlap
         )
         if not chunks:  # e.g. a blank scan: nothing to search, but not an error
             return []
+        intro = document_intro(next((page.text for page in pages if page.page == 1), ""))
         started = time.perf_counter()
-        vectors = embedder.embed_documents([chunk.text for chunk in chunks])
+        vectors = embedder.embed_documents(
+            [contextualize(document.filename, intro, chunk.text) for chunk in chunks]
+        )
     except Exception as exc:
         raise IndexingError from exc
 
@@ -66,7 +72,7 @@ def build_chunks(
             chunk_index=chunk.chunk_index,
             text=chunk.text,
             embedding=vector.tobytes(),
-            embedding_model=embedder.name,
+            embedding_model=index_name(embedder.name),
         )
         for chunk, vector in zip(chunks, vectors, strict=True)
     ]

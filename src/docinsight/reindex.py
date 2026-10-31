@@ -1,8 +1,9 @@
 """Re-index processed documents whose chunks are missing or come from another embedder.
 
 Documents processed before indexing existed have pages but no chunks, and chunks embedded
-with another model (e.g. hashing while no API key was set) are not searchable with the
-current one. Chunks are rebuilt from the stored page text, so OCR never runs again.
+with another model (e.g. hashing while no API key was set) or another text format (before
+chunk headers) are not searchable with the current one. Chunks are rebuilt from the stored
+page text, so OCR never runs again.
 
     python -m docinsight.reindex [--dry-run]          # locally: uv run python -m ...
     docker compose exec api python -m docinsight.reindex
@@ -17,6 +18,7 @@ from sqlmodel import Session, col, delete, select
 
 from docinsight.config import Settings, get_settings
 from docinsight.extraction.service import ExtractionMethod, PageText
+from docinsight.indexing.chunking import index_name
 from docinsight.indexing.embeddings import Embedder, create_embedder
 from docinsight.processing import build_chunks
 from docinsight.storage.db import make_engine
@@ -43,6 +45,7 @@ def reindex(
     ready, so a failure leaves the document as searchable as it was before.
     """
     stats = ReindexStats()
+    current = index_name(embedder.name)
     with Session(engine) as session:
         document_ids = session.exec(
             select(Document.id).where(Document.status == "processed").order_by(col(Document.id))
@@ -58,7 +61,7 @@ def reindex(
                     )
                 ).all()
             )
-            if models == {embedder.name}:
+            if models == {current}:
                 stats.up_to_date += 1
                 continue
             if dry_run:
@@ -117,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
 
     action = "would re-index" if args.dry_run else "re-indexed"
     print(
-        f"Embedder {embedder.name}: checked {stats.checked} processed documents, "
+        f"Index {index_name(embedder.name)}: checked {stats.checked} processed documents, "
         f"{stats.up_to_date} up to date, {action} {stats.reindexed}, failed {stats.failed}, "
         f"{stats.chunks_written} chunks written."
     )

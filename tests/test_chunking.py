@@ -2,7 +2,13 @@
 
 from itertools import pairwise
 
-from docinsight.indexing.chunking import ChunkText, chunk_pages
+from docinsight.indexing.chunking import (
+    ChunkText,
+    chunk_pages,
+    contextualize,
+    document_intro,
+    index_name,
+)
 
 SIZE = 200
 OVERLAP = 50
@@ -83,3 +89,36 @@ def test_neighbouring_chunks_overlap() -> None:
         assert last_word in second.text.split()
         # ...but no more than `overlap` characters of it.
         assert second.text.index(last_word) + len(last_word) <= OVERLAP
+
+
+# --- Document header ---
+
+
+def test_intro_is_the_start_of_page_one_on_one_line() -> None:
+    page = "SERVICE AGREEMENT\nConcluded on 09.02.2026. in Zagreb between:\n\nŠalić d.o.o."
+
+    assert document_intro(page) == (
+        "SERVICE AGREEMENT Concluded on 09.02.2026. in Zagreb between: Šalić d.o.o."
+    )
+
+
+def test_long_intro_is_cut_at_a_word() -> None:
+    intro = document_intro(make_words(100), max_chars=50)
+
+    assert len(intro) <= 50
+    assert intro == make_words(8)  # 8 words of 5 characters + 7 spaces = 47
+
+
+def test_blank_first_page_gives_no_intro() -> None:
+    assert document_intro(" \n\t ") == ""
+
+
+def test_contextualized_text_starts_with_the_header() -> None:
+    assert contextualize("ugovor-02.pdf", "SERVICE AGREEMENT", "Start: 20.02.2026.") == (
+        "ugovor-02.pdf\nSERVICE AGREEMENT\n\nStart: 20.02.2026."
+    )
+    assert contextualize("scan.jpg", "", "Tekst") == "scan.jpg\n\nTekst"
+
+
+def test_index_name_contains_embedder_and_text_format() -> None:
+    assert index_name("text-embedding-3-small") == "text-embedding-3-small+header-v1"

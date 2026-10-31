@@ -1,6 +1,15 @@
-"""Split page text into overlapping chunks that never cross a page boundary."""
+"""Split page text into overlapping chunks that never cross a page boundary.
+
+Every chunk is embedded and searched together with a short header of its document (file
+name and the start of page 1), because a chunk from the middle of a contract often does
+not say which contract it belongs to.
+"""
 
 from dataclasses import dataclass
+
+# Part of the index name: chunks indexed with another text format are re-indexed.
+INDEX_FORMAT = "header-v1"
+INTRO_CHARS = 200
 
 
 @dataclass(frozen=True)
@@ -61,3 +70,24 @@ def _word_start(text: str, i: int) -> int:
     while i < len(text) and text[i].isspace():
         i += 1
     return i
+
+
+def index_name(embedder_name: str) -> str:
+    """What ``DocumentChunk.embedding_model`` stores: vectors are only comparable when both
+    the embedder and the indexed text format match."""
+    return f"{embedder_name}+{INDEX_FORMAT}"
+
+
+def document_intro(first_page: str, max_chars: int = INTRO_CHARS) -> str:
+    """The start of page 1 on one line (title, parties, invoice number), cut at a word."""
+    intro = " ".join(first_page.split())
+    if len(intro) <= max_chars:
+        return intro
+    cut = intro.rfind(" ", 0, max_chars + 1)
+    return intro[: cut if cut > 0 else max_chars]
+
+
+def contextualize(filename: str, intro: str, text: str) -> str:
+    """The text that is embedded and ranked by BM25 for one chunk."""
+    header = f"{filename}\n{intro}" if intro else filename
+    return f"{header}\n\n{text}"

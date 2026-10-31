@@ -4,10 +4,16 @@ import pytest
 from factories import add_indexed_document
 from sqlmodel import Session
 
+from docinsight.config import Settings
+from docinsight.extraction.service import PageText
+from docinsight.indexing.chunking import index_name
 from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.indexing.search import ScoredChunk, search_chunks
+from docinsight.processing import build_chunks
+from docinsight.storage.models import Document, DocumentPage
 
 EMBEDDER = HashingEmbedder()
+INDEX = index_name(EMBEDDER.name)  # what add_indexed_document stores
 
 
 @pytest.fixture(params=[True, False], ids=["faiss", "numpy"])
@@ -30,7 +36,7 @@ def search(
         session,
         owner_id,
         EMBEDDER.embed_query(question),
-        EMBEDDER.name,
+        INDEX,
         top_k,
         document_ids,
         use_faiss=use_faiss,
@@ -142,7 +148,7 @@ def test_hybrid_finds_an_identifier_the_embedding_misses(session: Session, use_f
             session,
             "owner",
             misleading_vector,
-            EMBEDDER.name,
+            INDEX,
             3,
             query_text=query_text,
             use_faiss=use_faiss,
@@ -161,7 +167,7 @@ def test_hybrid_scores_are_between_zero_and_one(session: Session, use_faiss: boo
         session,
         "owner",
         EMBEDDER.embed_query(question),
-        EMBEDDER.name,
+        INDEX,
         5,
         query_text=question,
         use_faiss=use_faiss,
@@ -171,3 +177,62 @@ def test_hybrid_scores_are_between_zero_and_one(session: Session, use_faiss: boo
     assert results[0].page_number == 2
     assert results[0].score == pytest.approx(1.0)  # first in both rankings
     assert all(0 < r.score <= 1 for r in results)
+
+
+# --- Chunk headers ---
+
+
+def add_contract(session: Session, filename: str, pages: list[str]) -> str:
+    """Store pages and chunks the way process_document does, so chunks get their header."""
+    document = Document(
+        owner_id="owner",
+        filename=filename,
+        content_type="application/pdf",
+        size_bytes=1,
+        sha256="0" * 64,
+        stored_path="unused",
+        status="processed",
+    )
+    session.add(document)
+    page_texts = [PageText(n, text, "text_layer") for n, text in enumerate(pages, start=1)]
+    session.add_all(
+        DocumentPage(document_id=document.id, page_number=p.page, text=p.text, method=p.method)
+        for p in page_texts
+    )
+    session.add_all(build_chunks(document, page_texts, EMBEDDER, Settings()))
+    session.commit()
+    return document.id
+
+
+@pytest.mark.parametrize("hybrid", [True, False], ids=["hybrid", "dense"])
+def test_header_tells_which_contract_a_chunk_belongs_to(
+    session: Session, use_faiss: bool, hybrid: bool
+) -> None:
+    # The answer is on page 2, which never names the client: only the header does.
+    # The other contract is stored first, so ties would favour the wrong one.
+    add_contract(
+        session,
+        "ugovor-01.pdf",
+        ["UGOVOR O DJELU. Naručitelj: Načinović d.o.o., Drniš", "Izvršitelj počinje 01.07.2026."],
+    )
+    salic = add_contract(
+        session,
+        "ugovor-02.pdf",
+        ["UGOVOR O DJELU. Naručitelj: Šalić d.o.o., Obrovac", "Izvršitelj počinje 20.02.2026."],
+    )
+    question = "Kada izvršitelj počinje prema ugovoru sa Šalić d.o.o.?"
+
+    results = search_chunks(
+        session,
+        "owner",
+        EMBEDDER.embed_query(question),
+        INDEX,
+        4,
+        query_text=question if hybrid else None,
+        use_faiss=use_faiss,
+    )
+
+    [first_page_two, *_] = [r for r in results if r.page_number == 2]
+    assert first_page_two.document_id == salic
+    assert first_page_two.text == "Izvršitelj počinje 20.02.2026."  # stored without header
+    assert first_page_two.intro == "UGOVOR O DJELU. Naručitelj: Šalić d.o.o., Obrovac"

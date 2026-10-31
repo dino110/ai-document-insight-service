@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session, col, select
 
 from docinsight.config import Settings, get_settings
+from docinsight.indexing.chunking import index_name
 from docinsight.indexing.embeddings import HashingEmbedder
 from docinsight.reindex import main, reindex
 from docinsight.storage.db import make_engine
@@ -96,7 +97,7 @@ def test_document_without_chunks_is_indexed_from_its_pages(engine: Engine) -> No
         (1, "Kupac: Horvat d.o.o."),
         (2, "Ukupno: 1.575,00 EUR"),
     ]
-    assert {c.embedding_model for c in chunks} == {embedder.name}
+    assert {c.embedding_model for c in chunks} == {index_name(embedder.name)}
     assert (stats.checked, stats.reindexed, stats.chunks_written) == (1, 1, 2)
 
 
@@ -107,14 +108,26 @@ def test_chunks_of_another_model_are_replaced(engine: Engine) -> None:
     reindex(engine, embedder, SETTINGS)
 
     [chunk] = chunks_of(engine, document_id)
-    assert chunk.embedding_model == embedder.name
+    assert chunk.embedding_model == index_name(embedder.name)
     assert chunk.text == "Datum dospijeća: 19.01.2026."
     assert len(chunk.embedding) == embedder.dim * 4
 
 
+def test_chunks_without_headers_are_replaced(engine: Engine) -> None:
+    embedder = CountingEmbedder()
+    # Indexed by the same embedder before chunk headers existed.
+    document_id = add_document(engine, ["Tekst."], chunk_model=embedder.name)
+
+    stats = reindex(engine, embedder, SETTINGS)
+
+    [chunk] = chunks_of(engine, document_id)
+    assert chunk.embedding_model == index_name(embedder.name)
+    assert stats.reindexed == 1
+
+
 def test_up_to_date_documents_are_not_embedded_again(engine: Engine) -> None:
     embedder = CountingEmbedder()
-    add_document(engine, ["Tekst."], chunk_model=embedder.name)
+    add_document(engine, ["Tekst."], chunk_model=index_name(embedder.name))
 
     stats = reindex(engine, embedder, SETTINGS)
 
@@ -149,7 +162,7 @@ def test_failure_keeps_old_chunks_and_continues(
     real_embed = embedder.embed_documents
 
     def fail_once(texts: list[str]) -> NDArray[np.float32]:
-        if texts == ["Prvi."]:
+        if any(text.endswith("Prvi.") for text in texts):  # embedded with its header
             raise RuntimeError("API down")
         return real_embed(texts)
 
