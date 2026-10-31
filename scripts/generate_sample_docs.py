@@ -1,6 +1,6 @@
 """Generate fictional invoices and contracts for manual tests, demos and evaluation.
 
-All data is invented (Faker, random OIBs with a valid check digit). The same seed
+All data is invented (Faker, random OIBs and IBANs with valid check digits). The same seed
 always produces the same documents and the same ``expected.json``.
 
 Usage:
@@ -92,6 +92,7 @@ class Invoice:
     issue_date: date
     due_date: date
     items: list[LineItem]
+    issuer_iban: str
 
     @property
     def net(self) -> Decimal:
@@ -135,6 +136,23 @@ def make_oib(rng: random.Random) -> str:
     return first10 + oib_check_digit(first10)
 
 
+# Real bank codes (Zagrebačka banka, PBZ, Erste, RBA), so the IBANs look plausible.
+BANK_CODES = ("2360000", "2340009", "2402006", "2484008")
+
+
+def make_iban(rng: random.Random) -> str:
+    """Croatian IBAN: HR, 2 check digits (ISO 7064 MOD 97-10), 7-digit bank, 10-digit account."""
+    bban = rng.choice(BANK_CODES) + "".join(str(rng.randint(0, 9)) for _ in range(10))
+    # Check digits: BBAN + "HR00" with letters as numbers (H=17, R=27), then 98 - mod 97.
+    check = 98 - int(bban + "172700") % 97
+    return f"HR{check:02d}{bban}"
+
+
+def format_iban(iban: str) -> str:
+    """Printed form in groups of four: 'HR12 2360 0001 1013 3245 7'."""
+    return " ".join(iban[i : i + 4] for i in range(0, len(iban), 4))
+
+
 def format_money(amount: Decimal) -> str:
     """Croatian format: 1314.6 -> '1.314,60 EUR'."""
     us = f"{amount:,.2f}"  # '1,314.60'
@@ -166,7 +184,7 @@ def make_person(fake: Faker, rng: random.Random) -> Party:
     return Party(name=fake.name(), oib=make_oib(rng), address=address)
 
 
-def make_invoice(index: int, fake: Faker, rng: random.Random) -> Invoice:
+def make_invoice(index: int, fake: Faker, rng: random.Random, iban_rng: random.Random) -> Invoice:
     issue = random_date(rng, date(2026, 1, 1), 270)
     services = rng.sample(SERVICES, rng.randint(2, 4))
     items = [LineItem(desc, rng.randint(1, 5), price) for desc, price in services]
@@ -177,6 +195,7 @@ def make_invoice(index: int, fake: Faker, rng: random.Random) -> Invoice:
         issue_date=issue,
         due_date=issue + timedelta(days=rng.choice([15, 30])),
         items=items,
+        issuer_iban=make_iban(iban_rng),
     )
 
 
@@ -220,7 +239,11 @@ def render_invoice(inv: Invoice) -> bytes:
     pdf.ln(4)
 
     line(pdf, "Izdavatelj:", bold=True)
-    line(pdf, f"{inv.issuer.name}\n{inv.issuer.address}\nOIB: {inv.issuer.oib}")
+    line(
+        pdf,
+        f"{inv.issuer.name}\n{inv.issuer.address}\nOIB: {inv.issuer.oib}"
+        f"\nIBAN: {format_iban(inv.issuer_iban)}",
+    )
     pdf.ln(3)
     line(pdf, "Kupac:", bold=True)
     line(pdf, f"{inv.buyer.name}\n{inv.buyer.address}\nOIB: {inv.buyer.oib}")
@@ -255,7 +278,12 @@ def render_invoice(inv: Invoice) -> bytes:
         pdf.cell(50, 7, format_money(amount), align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     pdf.ln(10)
-    line(pdf, f"Molimo uplatu do {format_date(inv.due_date)} uz poziv na broj {inv.number}.")
+    # The IBAN appears twice, grouped above and compact here, like on real invoices.
+    line(
+        pdf,
+        f"Molimo uplatu na IBAN {inv.issuer_iban} do {format_date(inv.due_date)} "
+        f"uz poziv na broj {inv.number}.",
+    )
     return bytes(pdf.output())  # output() returns a bytearray
 
 
@@ -489,6 +517,7 @@ def invoice_expected(inv: Invoice) -> dict[str, str]:
         "number": inv.number,
         "issuer": inv.issuer.name,
         "issuer_oib": inv.issuer.oib,
+        "issuer_iban": inv.issuer_iban,
         "buyer": inv.buyer.name,
         "buyer_oib": inv.buyer.oib,
         "issue_date": inv.issue_date.isoformat(),
@@ -514,6 +543,9 @@ def contract_expected(c: Contract) -> dict[str, str | list[str]]:
 
 def generate(out: Path, seed: int) -> list[str]:
     rng = random.Random(seed)
+    # A separate generator for IBANs: drawing them from ``rng`` would shift every value
+    # after them (OIBs, amounts, dates) and break the evaluation questions.
+    iban_rng = random.Random(seed + 1)
     fake = Faker("hr_HR")
     fake.seed_instance(seed)
     out.mkdir(parents=True, exist_ok=True)
@@ -522,7 +554,7 @@ def generate(out: Path, seed: int) -> list[str]:
     expected: dict[str, dict[str, str] | dict[str, str | list[str]]] = {}
 
     for i in range(1, 4):
-        inv = make_invoice(i, fake, rng)
+        inv = make_invoice(i, fake, rng, iban_rng)
         name = f"racun-{inv.number}"
         files[f"{name}.pdf"] = render_invoice(inv)
         expected[f"{name}.pdf"] = invoice_expected(inv)
