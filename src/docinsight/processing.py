@@ -36,7 +36,7 @@ def _error_message(exc: Exception) -> str:
     return "Text extraction failed."
 
 
-def _build_chunks(
+def build_chunks(
     document: Document, pages: list[PageText], embedder: Embedder, settings: Settings
 ) -> list[DocumentChunk]:
     """Split the pages into chunks and embed them all in one call (batched by the embedder)."""
@@ -100,7 +100,7 @@ def process_document(
                 for page in pages
             )
             # Pages and chunks are committed together: "processed" always means searchable.
-            session.add_all(_build_chunks(document, pages, embedder, settings))
+            session.add_all(build_chunks(document, pages, embedder, settings))
             document.status = "processed"
             document.page_count = len(pages)
             session.commit()
