@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None  # any OpenAI-compatible server, e.g. Ollama
     llm_timeout_s: float = Field(default=30, gt=0)
 
+    # Entities in answers. "auto": spaCy models plus rules when the models load, else rules.
+    ner_backend: Literal["auto", "spacy", "rules"] = "auto"
+
     @field_validator("openai_api_key", mode="before")
     @classmethod
     def _empty_key_is_none(cls, value: object) -> object:

@@ -91,7 +91,7 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 pythonpath = ["ui", "scripts"]   # tests can `import api_client` (as Streamlit does) and scripts
 addopts = "-ra"
-markers = ["slow: treba pravi OCR (Docker)"]
+markers = ["slow: real models (EasyOCR only in Docker, spaCy also locally)"]
 filterwarnings = [
     # Emitted by PyMuPDF's SWIG bindings on import, not by our code.
     "ignore:builtin type .* has no __module__ attribute:DeprecationWarning",
