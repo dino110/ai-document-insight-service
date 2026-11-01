@@ -141,7 +141,7 @@ Short records of non-trivial decisions: context, decision, alternatives, consequ
 
 ## 020 – Named entities: rules plus spaCy, in answers and per page
 
-- **Context:** The assignment asks for NER ("choose model") to highlight entities in answers. Documents are Croatian invoices and contracts, some in English. torch has no Intel macOS wheel (010). OIBs, IBANs, dates and amounts have fixed formats and check digits; names do not. Invoice fields (021) need a local check of what the LLM returns.
+- **Context:** The assignment asks for NER ("choose model") to highlight entities in answers. Documents are Croatian invoices and contracts, some in English. torch has no Intel macOS wheel (010). OIBs, IBANs, dates and amounts have fixed formats and check digits; names do not. Invoice fields (022) need a local check of what the LLM returns.
 - **Decision:** An `EntityExtractor` protocol with two implementations: `RuleEntityExtractor` and `SpacyEntityExtractor`. The second uses `hr_core_news_md` or `en_core_web_sm` 3.8.0, pinned as URL dependencies in `uv.lock`, loaded once in `lifespan` and without the components NER does not need (`exclude`). `ner_backend = "auto"` falls back to rules when the models are missing.
   - **Rules** (`nlp/patterns.py`):
     - OIB with its ISO 7064 MOD 11,10 check digit;
@@ -194,4 +194,28 @@ Short records of non-trivial decisions: context, decision, alternatives, consequ
     - names, addresses and foreign IBANs still go to OpenAI;
     - an identifier with a wrong check digit (e.g. an OCR error) is neither recognised nor masked;
     - if the model changes a placeholder, it reaches the user as a placeholder instead of the value.
-  - **Invoice fields (022, planned):** the extraction call sends the whole document, so the same masking has to be applied there.
+  - **Document fields (022):** the extraction call sends the whole document, so the same masking is applied there.
+
+## 022 – Document type, summary and fields from one LLM call, checked in code
+
+- **Context:** The assignment asks for invoice fields as JSON. A user also wants to know what a contract says without reading it, and who signed it, for how much and until when. Local NER (020) finds OIBs, IBANs, amounts, dates and companies, but not their roles: it cannot tell the issuer from the buyer or the start date from the end date. An LLM can, but its output is not guaranteed to be true.
+- **Decision:** `GET /documents/{id}/fields` sends the text of the whole document to the LLM once and stores the result.
+  - **One call, strict schema:** `responses.parse` with `text_format=DocumentExtraction` (`document_type`, `summary`, `invoice`, `contract`). Every field is required and nullable, so the model always has a valid way to say "not in the document". The type decides which object is used, even if the model fills both. Amounts and dates come in a machine format; the summary (3 to 5 sentences, Croatian) writes them as the document does.
+  - **Masking:** OIBs and IBANs are masked before the call, as in 021, and placeholders are replaced with the real values in every field and in the summary. The text is cut to `fields_max_chars` (12,000) after masking.
+  - **Checks in code, no LLM:** check digits of OIBs and the IBAN; net + VAT = total to the cent; date order (issue ≤ due, signed ≤ start ≤ end); whether the number, identifiers, amounts and dates are among the document's entities (`values_in_document`); whether the parties are among its companies and people (`names_in_entities`). A check that cannot run is `None`; a failed one adds a warning. The summary is not checked, and the UI says so.
+  - **Lazy, stored once:** fields are extracted on the first GET, not during processing, and stored in a `DocumentFields` table (one row per document, JSON columns, the model name). The stored data carries `FIELDS_FORMAT`; a row of an older format is extracted again and replaced. A parallel first call that loses the insert (`IntegrityError`) returns the stored row.
+  - **Errors:** 404 for a missing or foreign document (the same answer), 409 before processing ends, 503 without an API key, 502 when the call fails. Logs hold the type, the names of failed checks and the time, never values.
+  - **OCR cleanup:** EasyOCR reads every "d.o.o." as "d.0.0.", which broke company names on scans. OCR pages, never text layers, get Croatian legal forms written canonically (`extraction/ocr_cleanup.py`); zeros and diacritics elsewhere are left alone.
+- **Alternatives:**
+  - regular expressions per invoice layout (break on other layouts and on OCR text);
+  - NER and rules only (no roles);
+  - LayoutLM or Donut (torch, Docker only (010), and they need training data);
+  - a local model for roles (NuExtract 2.0, or a local LLM through `llm_base_url`);
+  - separate calls for type, summary and fields (three times the latency and cost, and answers that can disagree);
+  - extracting during processing (every upload pays for an LLM call, even when nobody looks at the fields);
+  - columns per field instead of JSON (a migration for every new field).
+- **Consequences:** Measured in Docker on 11 digital documents and 4 scans (`docs/evaluation.md`): type 15/15, summary 15/15, fields 125/129 (97 %), all 97 on digital documents. The OCR cleanup raised scans from 24/32 to 28/32.
+  - **What the checks guarantee:** that the fields agree with the document text, not that they are true. The four remaining errors are names whose diacritics OCR lost ("Elvis Antié"); the model copied them faithfully and every check passed, because NER finds the same wrong names in the same text. Before the cleanup, `names_in_entities` failed on exactly the four scans and on no other document.
+  - **Cost and latency:** one call of about 4 s per document, paid once, then served from the database.
+  - **Limits:** documents longer than 12,000 characters are cut; only invoices and contracts get fields; diacritics lost by OCR are not restored; names and addresses still go to OpenAI (021).
+  - **Next steps:** answer `/ask` questions such as "all invoices from January above 5,000 EUR" from the fields and use them as metadata filters before retrieval (015); extract during processing once most documents are opened anyway; restore names from an official register by OIB, which is reliable thanks to its check digit; addresses and places as fields.

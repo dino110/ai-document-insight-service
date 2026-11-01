@@ -17,10 +17,12 @@ threshold would be tuned on `sample_docs/eval_questions.json` by comparing answe
 accuracy and the share of questions answered locally. It would sit behind the existing
 `AnswerGenerator` protocol.
 
-## Answers from structured invoice fields
+## Answers from structured document fields
 
-Phase 5 extracts invoice fields (number, issuer, buyer, OIBs, dates, net, VAT, total)
-into JSON. Questions that map to one field of one invoice could then be answered from
+`GET /documents/{id}/fields` extracts the type, a summary and the fields of an invoice
+(number, issuer, buyer, OIBs, IBAN, dates, net, VAT, total) or a contract (parties, OIBs,
+dates, fee) into JSON (decision 022). Questions that map to one field of one document
+could then be answered from
 those fields without retrieval or an LLM, and they enable questions text search cannot
 answer: ranges and aggregates ("all invoices from January above 5,000 EUR"). Fields would
 also work as metadata filters before hybrid retrieval, falling back to plain hybrid
@@ -33,3 +35,12 @@ LLM (decision 021). Names, addresses and foreign IBANs still go out. Names need 
 NER model (decision 020 measured the current one as too noisy for this); foreign IBANs
 need the length per country. Full privacy for document text would need a local embedder
 and a local LLM behind the existing protocols.
+
+## Names that OCR got wrong
+
+On scans EasyOCR loses diacritics ("Elvis Antié" for "Elvis Antić"), and the extracted
+fields copy the error while every check passes (decision 022). The OIB next to a name is
+reliable thanks to its check digit, so the official name could be looked up by OIB in a
+company register and shown next to the scanned one. For people there is no public
+register; a second OCR engine or an LLM correction pass limited to names would be the
+options, with the original text always kept.
