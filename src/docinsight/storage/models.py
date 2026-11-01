@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import JSON, Column, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -58,6 +58,26 @@ class DocumentEntity(SQLModel, table=True):
     end: int
     # Backend and versions that produced it; reindex replaces entities of other extractors.
     extractor: str = Field(index=True)
+
+
+class DocumentFields(SQLModel, table=True):
+    """Type, summary and fields extracted by the LLM, and the checks our code ran on them.
+
+    One row per document, created on the first GET /documents/{id}/fields; later calls
+    read it instead of calling the LLM again. Reindex does not touch it. ``data`` holds
+    {"format", "summary", "invoice", "contract"}; a row of an older format is replaced.
+    """
+
+    document_id: str = Field(foreign_key="document.id", primary_key=True)
+    owner_id: str = Field(index=True)
+    document_type: str  # "invoice", "contract" or "other"
+    # JSON columns: SQLite stores text, SQLAlchemy converts to and from dicts and lists.
+    # object: nested dicts of fields, a summary and the format number.
+    data: dict[str, object] = Field(sa_column=Column(JSON, nullable=False))
+    checks: dict[str, bool | None] = Field(sa_column=Column(JSON, nullable=False))
+    warnings: list[str] = Field(sa_column=Column(JSON, nullable=False))
+    model: str  # the LLM that extracted the fields
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class DocumentChunk(SQLModel, table=True):

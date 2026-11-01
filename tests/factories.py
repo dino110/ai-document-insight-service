@@ -12,6 +12,7 @@ from sqlmodel import Session
 
 from docinsight.indexing.chunking import contextualize, index_name
 from docinsight.indexing.embeddings import HashingEmbedder
+from docinsight.nlp.fields import DocumentExtraction
 from docinsight.qa.generator import LlmAnswer
 from docinsight.qa.prompts import ContextChunk, HistoryTurn
 from docinsight.storage.models import Document, DocumentChunk
@@ -120,3 +121,19 @@ def add_indexed_document(
     )
     session.commit()
     return document.id
+
+
+class FakeFieldExtractor:
+    """Satisfies the FieldExtractor protocol: returns a fixed extraction, or raises."""
+
+    model = "fake-llm"
+
+    def __init__(self, result: DocumentExtraction | Exception) -> None:
+        self.result = result
+        self.calls: list[list[tuple[int, str]]] = []  # the pages of every call
+
+    def extract(self, pages: Sequence[tuple[int, str]]) -> DocumentExtraction:
+        self.calls.append(list(pages))
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result

@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from docinsight.config import Settings
 from docinsight.storage.db import make_engine
-from docinsight.storage.models import Document, DocumentChunk, DocumentEntity
+from docinsight.storage.models import Document, DocumentChunk, DocumentEntity, DocumentFields
 
 
 def test_chunk_embedding_round_trips_through_sqlite(tmp_path: Path) -> None:
@@ -44,11 +44,12 @@ def test_chunk_embedding_round_trips_through_sqlite(tmp_path: Path) -> None:
     assert np.array_equal(np.frombuffer(chunk.embedding, dtype=np.float32), vector)
 
 
-def test_entity_table_is_added_to_an_existing_database(tmp_path: Path) -> None:
+def test_new_tables_are_added_to_an_existing_database(tmp_path: Path) -> None:
     url = Settings(data_dir=tmp_path).database_url
     # A database from before phase 5: every table except the entities, with a document.
     old = create_engine(url)
-    tables = [t for t in SQLModel.metadata.sorted_tables if t.name != "documententity"]
+    new_tables = {"documententity", "documentfields"}
+    tables = [t for t in SQLModel.metadata.sorted_tables if t.name not in new_tables]
     SQLModel.metadata.create_all(old, tables=tables)
     with Session(old) as session:
         session.add(
@@ -68,4 +69,37 @@ def test_entity_table_is_added_to_an_existing_database(tmp_path: Path) -> None:
 
     with Session(engine) as session:
         assert len(session.exec(select(Document)).all()) == 1  # nothing was deleted
-        assert session.exec(select(DocumentEntity)).all() == []  # the new table exists
+        assert session.exec(select(DocumentEntity)).all() == []  # the new tables exist
+        assert session.exec(select(DocumentFields)).all() == []
+
+
+def test_fields_json_columns_round_trip(tmp_path: Path) -> None:
+    engine = make_engine(Settings(data_dir=tmp_path).database_url)
+    document = Document(
+        owner_id="a",
+        filename="racun.pdf",
+        content_type="application/pdf",
+        size_bytes=1,
+        sha256="0" * 64,
+        stored_path="x",
+    )
+    with Session(engine) as session:
+        session.add(document)
+        session.add(
+            DocumentFields(
+                document_id=document.id,
+                owner_id="a",
+                document_type="invoice",
+                data={"number": "2026-001", "issuer": None},
+                checks={"amounts_consistent": True, "names_in_entities": None},
+                warnings=["buyer_oib has an invalid check digit"],
+                model="fake-llm",
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        stored = session.exec(select(DocumentFields)).one()
+    assert stored.data == {"number": "2026-001", "issuer": None}
+    assert stored.checks == {"amounts_consistent": True, "names_in_entities": None}
+    assert stored.warnings == ["buyer_oib has an invalid check digit"]

@@ -41,20 +41,25 @@ class AnswerGenerator(Protocol):
         ...
 
 
+def make_openai_client(settings: Settings, http_client: httpx2.Client | None = None) -> OpenAI:
+    """The client for LLM calls (answers and document fields); tests pass a mock transport."""
+    if settings.openai_api_key is None:
+        raise ValueError("The LLM needs DOCINSIGHT_OPENAI_API_KEY")
+    return OpenAI(
+        api_key=settings.openai_api_key.get_secret_value(),
+        base_url=settings.llm_base_url,
+        timeout=settings.llm_timeout_s,
+        # One retry: the user is waiting for this answer.
+        max_retries=1,
+        http_client=http_client,
+    )
+
+
 class OpenAiGenerator:
     """OpenAI Responses API (or any compatible server via ``llm_base_url``)."""
 
     def __init__(self, settings: Settings, http_client: httpx2.Client | None = None) -> None:
-        if settings.openai_api_key is None:
-            raise ValueError("The LLM needs DOCINSIGHT_OPENAI_API_KEY")
-        self._client = OpenAI(
-            api_key=settings.openai_api_key.get_secret_value(),
-            base_url=settings.llm_base_url,
-            timeout=settings.llm_timeout_s,
-            # One retry: the user is waiting for this answer.
-            max_retries=1,
-            http_client=http_client,
-        )
+        self._client = make_openai_client(settings, http_client)
         self.model = settings.llm_model
         self._reasoning_effort = settings.llm_reasoning_effort
 

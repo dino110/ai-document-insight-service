@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     llm_reasoning_effort: Literal["none", "low", "medium"] = "low"
     llm_base_url: str | None = None  # any OpenAI-compatible server, e.g. Ollama
     llm_timeout_s: float = Field(default=30, gt=0)
+    # Document fields: at most this much document text goes to the LLM (about 3-4k tokens).
+    fields_max_chars: int = Field(default=12000, ge=1000)
 
     # Entities in answers. "auto": spaCy models plus rules when the models load, else rules.
     ner_backend: Literal["auto", "spacy", "rules"] = "auto"

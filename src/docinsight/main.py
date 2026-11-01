@@ -8,10 +8,11 @@ from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 
 from docinsight import __version__
-from docinsight.api import ask, documents, health
+from docinsight.api import ask, documents, fields, health
 from docinsight.config import get_settings
 from docinsight.extraction.ocr import create_ocr_engine
 from docinsight.indexing.embeddings import create_embedder
+from docinsight.nlp.fields import create_field_extractor
 from docinsight.nlp.ner import create_entity_extractor
 from docinsight.qa.generator import create_generator
 from docinsight.qa.guard import RuleBasedRouter
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Cheap: API clients, no models to load.
     app.state.embedder = create_embedder(settings)
     app.state.generator = create_generator(settings)
+    app.state.field_extractor = create_field_extractor(settings)
     app.state.router = RuleBasedRouter()  # compiles its patterns once
     # Loading the spaCy models takes about a second.
     app.state.entity_extractor = await run_in_threadpool(create_entity_extractor, settings)
@@ -41,4 +43,5 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Document Insight Service", version=__version__, lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(documents.router)
+app.include_router(fields.router)
 app.include_router(ask.router)

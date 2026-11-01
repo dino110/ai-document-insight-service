@@ -10,6 +10,7 @@ from sqlmodel import Session
 from docinsight.config import Settings, get_settings
 from docinsight.extraction.ocr import OcrEngine
 from docinsight.indexing.embeddings import Embedder
+from docinsight.nlp.fields import FieldExtractor
 from docinsight.nlp.ner import EntityExtractor
 from docinsight.qa.generator import AnswerGenerator
 from docinsight.qa.guard import QueryRouter
@@ -63,6 +64,12 @@ def get_entity_extractor(request: Request) -> EntityExtractor:
     return extractor
 
 
+def get_field_extractor(request: Request) -> FieldExtractor:
+    """The invoice field extractor created once in lifespan; tests replace it."""
+    extractor: FieldExtractor = request.app.state.field_extractor
+    return extractor
+
+
 DbSession = Annotated[Session, Depends(get_session)]
 DbEngine = Annotated[Engine, Depends(get_engine)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -71,3 +78,4 @@ EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
 GeneratorDep = Annotated[AnswerGenerator, Depends(get_generator)]
 RouterDep = Annotated[QueryRouter, Depends(get_router)]
 EntityExtractorDep = Annotated[EntityExtractor, Depends(get_entity_extractor)]
+FieldExtractorDep = Annotated[FieldExtractor, Depends(get_field_extractor)]
