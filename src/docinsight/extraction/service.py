@@ -3,8 +3,12 @@
 from dataclasses import dataclass
 from typing import Literal
 
+import numpy as np
+from numpy.typing import NDArray
+
 from docinsight.config import Settings
 from docinsight.extraction.ocr import OcrEngine, image_to_array
+from docinsight.extraction.ocr_cleanup import clean_ocr_text
 from docinsight.extraction.pdf import extract_text_layer, render_page
 
 ExtractionMethod = Literal["text_layer", "ocr"]
@@ -22,6 +26,11 @@ def needs_ocr(text: str, min_chars: int) -> bool:
     return len("".join(text.split())) < min_chars
 
 
+def read_page(ocr: OcrEngine, image: NDArray[np.uint8]) -> str:
+    """OCR text with known OCR errors fixed; text layers never go through this."""
+    return clean_ocr_text(ocr.read(image).strip())
+
+
 def extract_document(
     content: bytes, content_type: str, ocr: OcrEngine, settings: Settings
 ) -> list[PageText]:
@@ -30,7 +39,7 @@ def extract_document(
     Errors from PyMuPDF, Pillow and the OCR engine are not caught here.
     """
     if content_type in ("image/png", "image/jpeg"):
-        return [PageText(page=1, text=ocr.read(image_to_array(content)).strip(), method="ocr")]
+        return [PageText(page=1, text=read_page(ocr, image_to_array(content)), method="ocr")]
     if content_type != "application/pdf":
         raise ValueError(f"Unsupported content type: {content_type}")
 
@@ -38,7 +47,7 @@ def extract_document(
     for index, text in enumerate(extract_text_layer(content)):
         if needs_ocr(text, settings.ocr_min_chars):
             image = render_page(content, index, settings.ocr_dpi)
-            pages.append(PageText(page=index + 1, text=ocr.read(image).strip(), method="ocr"))
+            pages.append(PageText(page=index + 1, text=read_page(ocr, image), method="ocr"))
         else:
             pages.append(PageText(page=index + 1, text=text.strip(), method="text_layer"))
     return pages

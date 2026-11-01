@@ -66,6 +66,24 @@ def test_ocr_runs_only_for_pages_without_text(settings: Settings) -> None:
     assert ocr.calls == 1
 
 
+def test_ocr_pages_get_legal_forms_fixed(settings: Settings) -> None:
+    ocr = FakeOcrEngine("Kupac: Horvat d.0.0 Zagreb")
+
+    [scan] = extract_document(make_image_pdf(), "application/pdf", ocr, settings)
+    [photo] = extract_document(make_png(), "image/png", ocr, settings)
+
+    assert scan.text == photo.text == "Kupac: Horvat d.o.o. Zagreb"
+
+
+def test_text_layer_is_never_cleaned(settings: Settings) -> None:
+    content = make_text_pdf("Kupac: Horvat d.0.0 Zagreb, a text layer long enough.")
+
+    [page] = extract_document(content, "application/pdf", FakeOcrEngine(), settings)
+
+    assert page.method == "text_layer"
+    assert "Horvat d.0.0 Zagreb" in page.text
+
+
 def test_empty_ocr_result_is_an_empty_page_not_an_error(settings: Settings) -> None:
     [page] = extract_document(make_image_pdf(), "application/pdf", FakeOcrEngine(""), settings)
 

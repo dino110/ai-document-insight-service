@@ -1,4 +1,4 @@
-# Evaluation of `/ask` and invoice fields
+# Evaluation of `/ask` and document fields
 
 Question set: `sample_docs/eval_questions.json` (20 questions: 17 answerable from the
 sample invoices and contracts, in Croatian and English, including paraphrases and
@@ -150,3 +150,69 @@ Note on the question set: since the sample invoices have an IBAN (phase 5), the 
 | racun-2026-003.pdf | 11/11 | - | - |
 | ugovor-01.pdf | 5/5 | - | - |
 | ugovor-02.pdf | 5/5 | - | - |
+
+## Document fields in Docker (11 digital documents and 4 scans through EasyOCR)
+
+The sample set now has four more invoices (2026-004 to 2026-007) and two more contracts (`ugovor-03`, `ugovor-04`); the earlier documents are unchanged, so the reports above stay valid for them. Earlier `/ask` reports were measured with the 9 documents of that time; a new `/ask` run searches all 15. The run below was made in Docker against the same API, before and after OCR text started to have legal forms fixed (`extraction/ocr_cleanup.py`).
+
+| | Before the fix | After the fix |
+| --- | --- | --- |
+| All fields | 121/129 (94%) | 125/129 (97%) |
+| Digital documents | 97/97 | 97/97 |
+| Scans | 24/32 | 28/32 |
+| Documents with a failed check | 4 (every scan, `names_in_entities`) | 0 |
+| Identifiers and amounts among the entities | 42/42 | 42/42 |
+
+EasyOCR read every "d.o.o." on the scans as "d.0.0.", and the model copied it as written, so all four scanned documents had wrong company names. The company rule did not recognise "d.0.0." as a legal form, so `names_in_entities` failed on exactly those four documents and on no other. After the fix the invoice scans are correct. The contract scans still have "Nacinoviá d.o.o." and "Elvis Antié" for "Načinović d.o.o." and "Elvis Antić": OCR lost the diacritics, and the model copied the text faithfully.
+
+These four wrong fields pass every check. The checks compare the fields with the document text, and OCR wrote the wrong names into that text: the rules find "Nacinoviá d.o.o." as a company, and spaCy finds "Elvis Antié" as a person. The checks catch a model that invents or changes values; they cannot catch an error in the source text. OIBs, IBANs, amounts and dates were right on every scan.
+
+### Report: Docker, after OCR legal form fix
+
+15 documents, 15 answered with 200.
+
+| Field | Correct |
+| --- | --- |
+| invoice: number | 9/9 (100%) |
+| invoice: issuer | 9/9 (100%) |
+| invoice: issuer_oib | 9/9 (100%) |
+| invoice: issuer_iban | 9/9 (100%) |
+| invoice: buyer | 9/9 (100%) |
+| invoice: buyer_oib | 9/9 (100%) |
+| invoice: issue_date | 9/9 (100%) |
+| invoice: due_date | 9/9 (100%) |
+| invoice: net | 9/9 (100%) |
+| invoice: vat | 9/9 (100%) |
+| invoice: total | 9/9 (100%) |
+| contract: client | 4/6 (67%) |
+| contract: contractor | 4/6 (67%) |
+| contract: start_date | 6/6 (100%) |
+| contract: end_date | 6/6 (100%) |
+| contract: fee | 6/6 (100%) |
+| **all fields** | 125/129 (97%) |
+
+| Metric | Value |
+| --- | --- |
+| Document type | 15/15 (100%) |
+| Summary returned | 15/15 (100%) |
+| Documents with a failed check | 0 |
+| Identifiers and amounts among the entities (local NER) | 42/42 (100%) |
+| Extraction p50 / max | 3862 / 4740 ms |
+
+| Document | Fields | Failed checks | Wrong fields |
+| --- | --- | --- | --- |
+| racun-2026-001.pdf | 11/11 | - | - |
+| racun-2026-002.pdf | 11/11 | - | - |
+| racun-2026-003.pdf | 11/11 | - | - |
+| ugovor-01.pdf | 5/5 | - | - |
+| ugovor-02.pdf | 5/5 | - | - |
+| racun-2026-001-scan.jpg | 11/11 | - | - |
+| racun-2026-001-scan.pdf | 11/11 | - | - |
+| ugovor-01-scan.jpg | 3/5 | - | client, contractor |
+| ugovor-01-scan.pdf | 3/5 | - | client, contractor |
+| racun-2026-004.pdf | 11/11 | - | - |
+| racun-2026-005.pdf | 11/11 | - | - |
+| racun-2026-006.pdf | 11/11 | - | - |
+| racun-2026-007.pdf | 11/11 | - | - |
+| ugovor-03.pdf | 5/5 | - | - |
+| ugovor-04.pdf | 5/5 | - | - |
