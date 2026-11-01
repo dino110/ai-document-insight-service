@@ -26,11 +26,10 @@ answer: ranges and aggregates ("all invoices from January above 5,000 EUR"). Fie
 also work as metadata filters before hybrid retrieval, falling back to plain hybrid
 retrieval when a filter matches nothing (decision 015).
 
-## Masking personal data before calling the API
+## Masking more personal data before calling the API
 
-Document excerpts and questions are sent to OpenAI (decisions 014 and 016). OIBs, IBANs,
-and other identifiers could be replaced with placeholders (`[OIB_1]`, `[IBAN_1]`) before
-the call and restored in the answer afterwards. OIB and IBAN have fixed formats and check
-digits, so they can be detected reliably with rules; names need NER (phase 5). Embeddings
-would still see the original text unless a local embedder is used, so full privacy needs
-both masking for the LLM and local embeddings.
+OIBs and IBANs are already masked before every call to OpenAI, for embeddings and for the
+LLM (decision 021). Names, addresses and foreign IBANs still go out. Names need a reliable
+NER model (decision 020 measured the current one as too noisy for this); foreign IBANs
+need the length per country. Full privacy for document text would need a local embedder
+and a local LLM behind the existing protocols.
