@@ -217,12 +217,12 @@ def test_main_uses_settings_and_prints_a_summary(
     assert main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "would re-index 1" in out
-    assert "Entities rules-1: would refresh 1, 0 entities written." in out
+    assert "Entities rules-3: would refresh 1, 0 entities written." in out
 
     assert main([]) == 0  # no API key in tests, so the hashing embedder is used
     out = capsys.readouterr().out
     assert "re-indexed 1, failed 0, 1 chunks written" in out
-    assert "Entities rules-1: refreshed 1, 1 entities written." in out  # Horvat d.o.o.
+    assert "Entities rules-3: refreshed 1, 1 entities written." in out  # Horvat d.o.o.
     assert main([]) == 0
     assert "1 up to date, re-indexed 0" in capsys.readouterr().out
 
@@ -257,7 +257,7 @@ def test_document_without_entities_gets_them_without_embedding(engine: Engine) -
         (1, "ORG", "Horvat d.o.o."),
         (2, "MONEY", "1575.00"),
     ]
-    assert {e.extractor for e in entities} == {"rules-1"}
+    assert {e.extractor for e in entities} == {"rules-3"}
     assert embedder.calls == 0  # the chunks were current
     assert (stats.reindexed, stats.entities_refreshed, stats.entities_written) == (0, 1, 3)
 
@@ -268,7 +268,7 @@ def test_entities_of_another_extractor_are_replaced(engine: Engine) -> None:
     reindex(engine, CountingEmbedder(), EXTRACTOR, SETTINGS)
 
     assert [(e.text, e.extractor) for e in entities_of(engine, document_id)] == [
-        ("Horvat d.o.o.", "rules-1")
+        ("Horvat d.o.o.", "rules-3")
     ]
 
 
@@ -285,7 +285,7 @@ def test_current_entities_are_kept_when_only_chunks_are_rebuilt(engine: Engine) 
 
 
 class FailingExtractor:
-    name = "rules-2"
+    name = "failing"
 
     def extract(self, text: str, language: Language) -> list[Entity]:
         raise RuntimeError("model crashed")

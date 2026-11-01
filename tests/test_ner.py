@@ -96,7 +96,7 @@ def test_rule_extractor_ignores_the_language() -> None:
     extractor: EntityExtractor = RuleEntityExtractor()
 
     assert extractor.extract(ANSWER, "hr") == extractor.extract(ANSWER, "en")
-    assert extractor.name == "rules-1"
+    assert extractor.name == "rules-3"
 
 
 def test_citation_marker_is_not_an_entity() -> None:
@@ -162,14 +162,54 @@ def test_model_noise_is_dropped(tags: dict[str, str]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("model_label", "label"),
-    [("PER", "PERSON"), ("DERIV_PER", "PERSON"), ("PERSON", "PERSON"), ("GPE", "LOC"),
-     ("FAC", "LOC"), ("LOC", "LOC"), ("ORG", "ORG"), ("MISC", "MISC")],
+    ("phrase", "model_label", "label"),
+    [("Ana Kovač", "PER", "PERSON"), ("Ana Kovač", "DERIV_PER", "PERSON"),
+     ("Ana Kovač", "PERSON", "PERSON"), ("Zagreb", "GPE", "LOC"), ("Zagreb", "FAC", "LOC"),
+     ("Zagreb", "LOC", "LOC")],
 )  # fmt: skip
-def test_model_labels_are_mapped(model_label: str, label: str) -> None:
-    assert labelled(spacy_with({"Kovač": model_label}).extract("Ana Kovač", "hr")) == [
-        ("Kovač", label)
-    ]
+def test_model_labels_are_mapped(phrase: str, model_label: str, label: str) -> None:
+    text = "Ana Kovač iz Zagreba"
+
+    assert labelled(spacy_with({phrase: model_label}).extract(text, "hr")) == [(phrase, label)]
+
+
+@pytest.mark.parametrize("model_label", ["ORG", "MISC"])
+def test_model_organisations_and_misc_are_dropped(model_label: str) -> None:
+    # Companies come from the legal-form rule; the model's ORG and MISC were noise.
+    text = "Prema Zakonu o obveznim odnosima, Naručitelj Horvat plaća."
+
+    assert spacy_with({"Zakonu o obveznim odnosima": model_label}).extract(text, "hr") == []
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        pytest.param("Kol", id="table-header"),
+        pytest.param("Popovača", id="town"),
+        pytest.param("Gupčeva", id="street"),
+        pytest.param("Demetrova 6c", id="two-words-with-a-house-number"),
+    ],
+)
+def test_one_word_person_or_a_name_with_digits_is_dropped(phrase: str) -> None:
+    text = "Opis Kol. Cijena, Kraljevec 3, 13164 Popovača, Gupčeva zvijezda 1a, Demetrova 6c"
+
+    assert spacy_with({phrase: "PER"}).extract(text, "hr") == []
+
+
+@pytest.mark.parametrize(
+    ("phrase", "model_label"),
+    [
+        ("Naručitelja", "PER"),
+        ("Izvršitelju", "LOC"),
+        ("Naručitelj Ivan Horvat", "PER"),  # two words, but one names a role
+        ("the Client", "GPE"),
+        ("Contractor Ivan", "PERSON"),
+    ],
+)
+def test_role_words_are_not_entities_in_any_case(phrase: str, model_label: str) -> None:
+    text = "Obveze Naručitelja i Izvršitelju; Naručitelj Ivan Horvat; the Client; Contractor Ivan"
+
+    assert spacy_with({phrase: model_label}).extract(text, "hr") == []
 
 
 def test_pipeline_is_chosen_by_language() -> None:
@@ -314,4 +354,4 @@ def test_spacy_extractor_name_has_model_and_rule_versions(
 
     extractor = create_entity_extractor(Settings(ner_backend="auto"))
 
-    assert extractor.name == "spacy-hr_core_news_md-9.9.9-en_core_web_sm-9.9.9+rules-1"
+    assert extractor.name == "spacy-hr_core_news_md-9.9.9-en_core_web_sm-9.9.9+rules-3"

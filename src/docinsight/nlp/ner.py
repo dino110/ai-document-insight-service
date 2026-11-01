@@ -50,7 +50,7 @@ class EntityExtractor(Protocol):
 
 
 # Bump when a rule changes what it finds, so reindex recomputes the stored entities.
-RULES_VERSION = 1
+RULES_VERSION = 3
 
 # Rules in priority order: the first one to claim a span keeps it.
 _RULES: list[tuple[EntityLabel, Callable[[str], list[Span]]]] = [
@@ -62,22 +62,28 @@ _RULES: list[tuple[EntityLabel, Callable[[str], list[Span]]]] = [
     ("ORG", find_companies),
 ]
 
-# Model labels we keep. Croatian: PER, DERIV_PER (adjectives from names, "Kovačev"), ORG,
-# LOC, MISC. English: PERSON, ORG, GPE (countries, cities), LOC, FAC (buildings). English
-# DATE, MONEY and CARDINAL are dropped (the rules cover them), and so is everything else.
+# Model labels we keep: people and places only. Measured on the sample documents (rules-1),
+# the model's ORG was wrong 4 times out of 4 ("Naručitelja", "Mirogojska 1c") and MISC
+# mostly wrong; companies come from the legal-form rule instead. Croatian: PER, DERIV_PER
+# (adjectives from names, "Kovačev"), LOC. English: PERSON, GPE (countries, cities), LOC,
+# FAC (buildings). Everything else is dropped; MISC stays an API label only because
+# entities stored by older extractors may have it.
 _MODEL_LABELS: dict[str, EntityLabel] = {
     "PER": "PERSON",
     "DERIV_PER": "PERSON",
     "PERSON": "PERSON",
-    "ORG": "ORG",
     "LOC": "LOC",
     "GPE": "LOC",
     "FAC": "LOC",
-    "MISC": "MISC",
 }
 
-# Both models tag these abbreviations as ORG; in our documents they never are one.
-_NOT_ENTITIES = frozenset({"OIB", "IBAN", "PDV", "VAT", "EUR", "HRK", "USD", "GBP"})
+# Words naming a role in a contract or invoice, in any case form ("Naručitelja",
+# "Izvršitelju"): the models tag them as people, places or organisations.
+_ROLE = re.compile(
+    r"\b(naru[cč]itelj|izvr[sš]itelj|izdavatelj|prodavatelj|dobavlja[cč]|kupc|kupac"
+    r"|client|contractor|buyer|seller|issuer|supplier)\w*",
+    re.IGNORECASE,
+)
 
 # Citation markers such as "[1]" point to sources; they are never entities.
 _CITATION = re.compile(r"\[\d+\]")
@@ -149,7 +155,11 @@ class SpacyEntityExtractor:
             for entity in model
             # A name has letters; "2026-001" or a stray number tagged by the model is noise.
             if any(char.isalpha() for char in entity.text)
-            and entity.text not in _NOT_ENTITIES
+            # A person has a first and a last name: one word was a table header ("Kol."),
+            # a town ("Popovača") or a street ("Gupčeva") in every measured case. A name
+            # has no digits: "Demetrova 6c" is a street with a house number.
+            and (entity.label != "PERSON" or _is_person_name(entity.text))
+            and not _ROLE.search(entity.text)
             and not any(_overlaps((entity.start, entity.end), span) for span in citations)
         ]
         return _sorted(_without_overlaps(useful, kept=rules))
@@ -214,6 +224,11 @@ def detect_document_language(text: str) -> Language:
     croatian = sum(token in _HR_WORDS for token in tokens)
     english = sum(token in _EN_WORDS for token in tokens)
     return "en" if english > croatian else "hr"
+
+
+def _is_person_name(text: str) -> bool:
+    words = text.split()
+    return len(words) >= 2 and not any(char.isdigit() for char in text)
 
 
 def _overlaps(a: Span, b: Span) -> bool:

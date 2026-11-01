@@ -452,7 +452,7 @@ def test_processing_stores_the_entities_of_an_invoice(client: TestClient) -> Non
         [" ".join(expected["issuer_iban"][i : i + 4] for i in range(0, 21, 4)),
          expected["issuer_iban"]]
     )  # fmt: skip
-    assert {e.extractor for e in entities} == {"rules-1"}  # the tests use rules only
+    assert {e.extractor for e in entities} == {"rules-3"}  # the tests use rules only
     assert {e.owner_id for e in entities} == {"owner"}
 
 
