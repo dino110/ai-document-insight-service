@@ -12,7 +12,6 @@ Each run calls the LLM once per document (new session, nothing cached).
 
 import argparse
 import json
-import time
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -21,7 +20,7 @@ from typing import Literal
 from uuid import uuid4
 
 import httpx2
-from evaluate import SAMPLE_DIR, percentile, upload_and_wait
+from evaluate import SAMPLE_DIR, percentile, send, upload_and_wait
 
 Kind = Literal["invoice", "contract"]
 
@@ -107,9 +106,8 @@ def evaluate_document(
     kind: Kind = "invoice" if filename.startswith("racun-") else "contract"
     values = expected_values(kind, expected)
     headers = {"X-Session-ID": session_id}
-    started = time.perf_counter()
-    response = client.get(f"/documents/{document_id}/fields", headers=headers)
-    ms = (time.perf_counter() - started) * 1000
+    response = send(lambda: client.get(f"/documents/{document_id}/fields", headers=headers))
+    ms = response.elapsed.total_seconds() * 1000
     if response.status_code != 200:
         return DocumentResult(filename, kind, response.status_code, False, 0, {}, [], {}, ms)
     body = response.json()

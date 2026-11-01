@@ -14,7 +14,9 @@ import json
 import math
 import time
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict
 from uuid import uuid4
@@ -26,6 +28,8 @@ SAMPLE_DIR = Path(__file__).resolve().parent.parent / "sample_docs"
 CONTENT_TYPES = {".pdf": "application/pdf", ".jpg": "image/jpeg", ".png": "image/png"}
 # The API's default DOCINSIGHT_MAX_FILES_PER_REQUEST; more files go in several requests.
 UPLOAD_BATCH = 10
+# Waits for a rate limit (429 + Retry-After) before a request is given up as failed.
+RATE_LIMIT_RETRIES = 5
 
 
 class EvalHistoryMessage(TypedDict):
@@ -101,6 +105,22 @@ def sample_documents(include_scans: bool) -> list[str]:
     return [n for n in names if include_scans or "-scan" not in n]
 
 
+def send(request: Callable[[], httpx2.Response]) -> httpx2.Response:
+    """Send a request and wait out rate limits: after a 429, sleep for Retry-After and retry.
+
+    The API limits /ask, /fields and /upload per session (20 LLM requests a minute), and an
+    evaluation run asks more than that in one session. Timings use ``response.elapsed``, so
+    the waiting is not counted as latency.
+    """
+    response = request()
+    for _ in range(RATE_LIMIT_RETRIES):
+        if response.status_code != 429:
+            break
+        time.sleep(int(response.headers.get("Retry-After", "1")))
+        response = request()
+    return response
+
+
 def upload_and_wait(
     client: httpx2.Client, session_id: str, filenames: list[str], timeout_s: float
 ) -> dict[str, str]:
@@ -111,7 +131,7 @@ def upload_and_wait(
             ("files", (n, (SAMPLE_DIR / n).read_bytes(), CONTENT_TYPES[Path(n).suffix]))
             for n in filenames[start : start + UPLOAD_BATCH]
         ]
-        response = client.post("/upload", files=files, headers=headers)
+        response = send(partial(client.post, "/upload", files=files, headers=headers))
         response.raise_for_status()
     deadline = time.monotonic() + timeout_s
     while True:
@@ -122,13 +142,14 @@ def upload_and_wait(
 
 
 def ask(client: httpx2.Client, session_id: str, question: EvalQuestion) -> QuestionResult:
-    started = time.perf_counter()
-    response = client.post(
-        "/ask",
-        json={"question": question["question"], "history": question.get("history", [])},
-        headers={"X-Session-ID": session_id},
+    response = send(
+        lambda: client.post(
+            "/ask",
+            json={"question": question["question"], "history": question.get("history", [])},
+            headers={"X-Session-ID": session_id},
+        )
     )
-    total_ms = (time.perf_counter() - started) * 1000
+    total_ms = response.elapsed.total_seconds() * 1000
     body = response.json() if response.status_code == 200 else {}
     answer = str(body.get("answer", f"HTTP {response.status_code}"))
     found = bool(body.get("found", False))

@@ -1,7 +1,10 @@
 """Tests for the evaluation script and for the question set itself."""
 
 import json
+import time
 
+import evaluate
+import httpx2
 import pytest
 from evaluate import (
     SAMPLE_DIR,
@@ -12,6 +15,7 @@ from evaluate import (
     normalize,
     percentile,
     run,
+    send,
 )
 from factories import FakeGenerator
 from fastapi.testclient import TestClient
@@ -99,3 +103,36 @@ def test_follow_up_questions_depend_on_their_history() -> None:
         assert (user["role"], assistant["role"]) == ("user", "assistant")
         # The question alone does not name the document: only the history does.
         assert base_document(q["document"] or "") not in q["question"]
+
+
+def _client(statuses: list[int]) -> httpx2.Client:
+    """A client whose server answers with these statuses in turn (429s with Retry-After 7)."""
+    replies = iter(statuses)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        status = next(replies)
+        return httpx2.Response(status, headers={"Retry-After": "7"} if status == 429 else {})
+
+    return httpx2.Client(transport=httpx2.MockTransport(handler), base_url="http://api")
+
+
+def test_send_waits_out_a_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    client = _client([429, 429, 200])
+
+    response = send(lambda: client.get("/ask"))
+
+    assert response.status_code == 200
+    assert sleeps == [7, 7]
+
+
+def test_send_gives_up_after_the_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    client = _client([429] * 10)
+
+    response = send(lambda: client.get("/ask"))
+
+    assert response.status_code == 429
+    assert len(sleeps) == evaluate.RATE_LIMIT_RETRIES
