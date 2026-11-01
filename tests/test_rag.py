@@ -64,6 +64,19 @@ def test_unknown_and_repeated_citations_are_dropped(session: Session) -> None:
     assert [s.text for s in result.sources] == [contexts[1].text, contexts[0].text]
 
 
+def test_markers_are_renumbered_to_positions_in_sources(session: Session) -> None:
+    add_indexed_document(session, INVOICE, EMBEDDER)
+    answer = "Ukupno 1.575,00 EUR [2], PDV [1][2], kamata [9]."
+    generator = FakeGenerator(LlmAnswer(answer=answer, found=True, citations=[2, 1]))
+
+    result = ask(session, generator)
+
+    [(_, contexts)] = generator.calls
+    assert [s.text for s in result.sources] == [contexts[1].text, contexts[0].text]
+    # Excerpt 2 is the first source, excerpt 1 the second; [9] was never in the context.
+    assert result.answer == "Ukupno 1.575,00 EUR [1], PDV [2][1], kamata."
+
+
 def test_not_found_has_no_sources(session: Session) -> None:
     add_indexed_document(session, INVOICE, EMBEDDER)
     generator = FakeGenerator(LlmAnswer(answer="Nema podatka.", found=False, citations=[1]))

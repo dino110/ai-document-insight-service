@@ -9,6 +9,7 @@ from api_client import (
     EntityOut,
     InvoiceFields,
     Route,
+    SourceOut,
 )
 from app import (
     HISTORY_ANSWER_CHARS,
@@ -22,6 +23,7 @@ from app import (
     highlight,
     invoice_rows,
     page_html,
+    source_label,
     summary_rows,
 )
 
@@ -42,6 +44,14 @@ def test_rag_caption_shows_model_and_timings() -> None:
     result = _response("rag", "gpt-6-luna", {"retrieval": 230.0, "generation": 1300.0})
 
     assert answer_caption(result) == "gpt-6-luna · pretraga 0.2 s · odgovor 1.3 s"
+
+
+def test_source_label_carries_the_number_of_the_marker() -> None:
+    source = SourceOut(
+        document_id="d1", filename="racun-2026-002.pdf", page_number=1, snippet="…", score=0.9
+    )
+
+    assert source_label(2, source) == "[2] racun-2026-002.pdf, str. 1"
 
 
 def test_document_list_caption() -> None:

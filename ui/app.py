@@ -336,9 +336,8 @@ def show_message(message: ChatMessage) -> None:
             st.markdown(highlight(message["content"], entities), unsafe_allow_html=True)
             if entities:
                 st.caption(entity_legend(entities), unsafe_allow_html=True)
-        for source in message["sources"]:
-            label = f"{source['filename']}, str. {source['page_number']}"
-            with st.expander(label, icon=":material/description:"):
+        for n, source in enumerate(message["sources"], start=1):
+            with st.expander(source_label(n, source), icon=":material/description:"):
                 st.text(source["snippet"])  # document text, not markup
         if message["caption"]:
             st.caption(message["caption"])
@@ -403,6 +402,11 @@ def _escape(text: str) -> str:
 def _no_latex(text: str) -> str:
     """Markdown treats text between two "$" as LaTeX: "$100 or $200" would be mangled."""
     return text.replace("$", "\\$")
+
+
+def source_label(n: int, source: SourceOut) -> str:
+    """The API numbers the answer's [n] markers by the position in sources, so do we."""
+    return f"[{n}] {source['filename']}, str. {source['page_number']}"
 
 
 def answer_caption(result: AskResponse) -> str:

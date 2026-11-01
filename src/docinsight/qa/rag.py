@@ -1,6 +1,7 @@
 """Retrieval-augmented answering: embed the question, find chunks, answer from them only."""
 
 import logging
+import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -87,7 +88,7 @@ def answer_question(
     llm_answer = generator.generate(masker.mask(question), contexts, masked_history)
     generation_ms = _ms_since(started)
 
-    sources = _cited_chunks(llm_answer.citations, hits) if llm_answer.found else []
+    sources, numbers = _cited_chunks(llm_answer.citations, hits) if llm_answer.found else ([], {})
     # Counts and timings only: never the question or document text.
     logger.info(
         "Answered from %d chunks: found=%s, %d sources, retrieval %.0f ms, generation %.0f ms",
@@ -98,7 +99,7 @@ def answer_question(
         generation_ms,
     )
     return RagResult(
-        answer=masker.unmask(llm_answer.answer),
+        answer=masker.unmask(_renumber_markers(llm_answer.answer, numbers)),
         found=llm_answer.found,
         sources=sources,
         model=generator.model,
@@ -116,16 +117,34 @@ def search_text(question: str, history: Sequence[HistoryTurn]) -> str:
     return f"{previous} {question}" if previous else question
 
 
-def _cited_chunks(citations: list[int], hits: list[ScoredChunk]) -> list[ScoredChunk]:
+def _cited_chunks(
+    citations: list[int], hits: list[ScoredChunk]
+) -> tuple[list[ScoredChunk], dict[int, int]]:
     """Map the model's [n] numbers back to chunks. Unknown numbers and repeats are dropped,
-    so a source can only ever be a chunk that was really in the context."""
-    seen: set[int] = set()
+    so a source can only ever be a chunk that was really in the context.
+
+    Also returns excerpt number -> position in the sources (1-based), for the markers."""
+    numbers: dict[int, int] = {}
     cited: list[ScoredChunk] = []
     for n in citations:
-        if 1 <= n <= len(hits) and n not in seen:
-            seen.add(n)
+        if 1 <= n <= len(hits) and n not in numbers:
             cited.append(hits[n - 1])
-    return cited
+            numbers[n] = len(cited)
+    return cited, numbers
+
+
+_MARKER = re.compile(r"(\s*)\[(\d+)\]")
+
+
+def _renumber_markers(answer: str, numbers: dict[int, int]) -> str:
+    """Make [n] point at ``sources``: the model numbers all excerpts it saw, the client only
+    gets the cited ones. A marker of an excerpt that is not a source is removed."""
+
+    def replace(match: re.Match[str]) -> str:
+        position = numbers.get(int(match.group(2)))
+        return f"{match.group(1)}[{position}]" if position else ""
+
+    return _MARKER.sub(replace, answer)
 
 
 def _ms_since(started: float) -> float:
