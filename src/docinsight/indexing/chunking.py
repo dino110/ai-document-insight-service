@@ -7,8 +7,11 @@ not say which contract it belongs to.
 
 from dataclasses import dataclass
 
+from docinsight.nlp.patterns import find_ibans
+
 # Part of the index name: chunks indexed with another text format are re-indexed.
-INDEX_FORMAT = "header-v1"
+# "masked": OIBs and IBANs are masked in the embedded text, and no chunk splits an IBAN.
+INDEX_FORMAT = "header-masked-v1"
 INTRO_CHARS = 200
 
 
@@ -34,23 +37,40 @@ def chunk_pages(pages: list[tuple[int, str]], size: int, overlap: int) -> list[C
 
 
 def _split_page(text: str, size: int, overlap: int) -> list[str]:
+    # Every cut is decided on `view`: the same text without breaks inside IBANs. It has
+    # the same length, so the pieces are cut from `text` at the positions found in it.
+    view = _unbreakable(text)
     pieces: list[str] = []
-    start = _word_start(text, 0)
-    while start < len(text):
-        end = min(start + size, len(text))
-        if end < len(text) and not text[end].isspace():
+    start = _word_start(view, 0)
+    while start < len(view):
+        end = min(start + size, len(view))
+        if end < len(view) and not view[end].isspace():
             # The window ends inside a word: move the end back to the last whitespace.
-            end = _last_space(text, start, end)
+            end = _last_space(view, start, end)
         pieces.append(text[start:end].rstrip())
-        if end >= len(text):
+        if end >= len(view):
             break
         # max(..., start + 1) guarantees progress even when overlap is close to size.
-        start = _word_start(text, max(end - overlap, start + 1))
-        if not text[end].isspace():
+        start = _word_start(view, max(end - overlap, start + 1))
+        if not view[end].isspace():
             # A word longer than the window was cut at `end`: go on from the cut,
             # otherwise _word_start would skip the rest of that word.
             start = min(start, end)
     return pieces
+
+
+def _unbreakable(text: str) -> str:
+    """``text`` with the spaces inside IBANs replaced by "_": no cut falls between groups.
+
+    Masking recognises whole IBANs only, so half of one in each of two chunks would be
+    sent to the embedding API and the LLM unmasked.
+    """
+    chars = list(text)
+    for start, end in find_ibans(text):
+        for i in range(start, end):
+            if chars[i].isspace():
+                chars[i] = "_"
+    return "".join(chars)
 
 
 def _last_space(text: str, start: int, end: int) -> int:
@@ -83,7 +103,7 @@ def document_intro(first_page: str, max_chars: int = INTRO_CHARS) -> str:
     intro = " ".join(first_page.split())
     if len(intro) <= max_chars:
         return intro
-    cut = intro.rfind(" ", 0, max_chars + 1)
+    cut = _unbreakable(intro).rfind(" ", 0, max_chars + 1)  # never inside an IBAN
     return intro[: cut if cut > 0 else max_chars]
 
 

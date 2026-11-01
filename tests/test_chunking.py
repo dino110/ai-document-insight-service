@@ -121,4 +121,4 @@ def test_contextualized_text_starts_with_the_header() -> None:
 
 
 def test_index_name_contains_embedder_and_text_format() -> None:
-    assert index_name("text-embedding-3-small") == "text-embedding-3-small+header-v1"
+    assert index_name("text-embedding-3-small") == "text-embedding-3-small+header-masked-v1"

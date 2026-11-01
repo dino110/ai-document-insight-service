@@ -14,6 +14,7 @@ from docinsight.extraction.ocr import OcrEngine, OcrUnavailableError
 from docinsight.extraction.service import PageText, extract_document
 from docinsight.indexing.chunking import chunk_pages, contextualize, document_intro, index_name
 from docinsight.indexing.embeddings import Embedder
+from docinsight.nlp.masking import mask_identifiers
 from docinsight.nlp.ner import EntityExtractor, detect_document_language
 from docinsight.nlp.patterns import normalize_entity
 from docinsight.storage.models import Document, DocumentChunk, DocumentEntity, DocumentPage
@@ -43,7 +44,8 @@ def build_chunks(
 ) -> list[DocumentChunk]:
     """Split the pages into chunks and embed them all in one call (batched by the embedder).
 
-    The embedded text carries the document header; the stored text is the chunk alone.
+    The embedded text carries the document header and has OIBs and IBANs masked; the
+    stored text is the chunk alone, unmasked (BM25 and the UI work on it locally).
     """
     try:
         chunks = chunk_pages(
@@ -54,7 +56,7 @@ def build_chunks(
         intro = document_intro(next((page.text for page in pages if page.page == 1), ""))
         started = time.perf_counter()
         vectors = embedder.embed_documents(
-            [contextualize(document.filename, intro, chunk.text) for chunk in chunks]
+            [mask_identifiers(contextualize(document.filename, intro, c.text)) for c in chunks]
         )
     except Exception as exc:
         raise IndexingError from exc

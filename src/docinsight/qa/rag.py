@@ -11,6 +11,7 @@ from docinsight.config import Settings
 from docinsight.indexing.chunking import index_name
 from docinsight.indexing.embeddings import Embedder, EmbeddingError
 from docinsight.indexing.search import ScoredChunk, search_chunks
+from docinsight.nlp.masking import IdentifierMasker, mask_identifiers
 from docinsight.qa.generator import AnswerGenerator, LlmRequestError
 from docinsight.qa.prompts import ContextChunk, HistoryTurn
 
@@ -43,13 +44,17 @@ def answer_question(
 ) -> RagResult:
     """Answer ``question`` from the owner's documents, with the cited chunks as sources.
 
+    OIBs and IBANs never reach OpenAI: the question is embedded with them masked, and the
+    LLM sees numbered placeholders that are replaced with the real values in its answer.
+    Search itself (BM25) runs locally on the unmasked text.
+
     Raises NoDocumentsError when there is nothing to search, LlmRequestError when the
     embedding or LLM call fails and LlmUnavailableError when no LLM is configured.
     """
     started = time.perf_counter()
     query = search_text(question, history)
     try:
-        query_vector = embedder.embed_query(query)
+        query_vector = embedder.embed_query(mask_identifiers(query))
     except EmbeddingError as exc:
         # For the user it is the same failure as the LLM call: the answer service failed.
         raise LlmRequestError("Embedding the question failed") from exc
@@ -66,12 +71,20 @@ def answer_question(
     if not hits:
         raise NoDocumentsError("No processed documents to search")
 
+    masker = IdentifierMasker()  # one per request: the same OIB is [OIB_1] everywhere
     contexts = [
-        ContextChunk(n, hit.filename, hit.page_number, hit.text, hit.intro)
+        ContextChunk(
+            n,
+            masker.mask(hit.filename),
+            hit.page_number,
+            masker.mask(hit.text),
+            masker.mask(hit.intro),
+        )
         for n, hit in enumerate(hits, start=1)
     ]
+    masked_history = [HistoryTurn(turn.role, masker.mask(turn.text)) for turn in history]
     started = time.perf_counter()
-    llm_answer = generator.generate(question, contexts, history)
+    llm_answer = generator.generate(masker.mask(question), contexts, masked_history)
     generation_ms = _ms_since(started)
 
     sources = _cited_chunks(llm_answer.citations, hits) if llm_answer.found else []
@@ -85,7 +98,7 @@ def answer_question(
         generation_ms,
     )
     return RagResult(
-        answer=llm_answer.answer,
+        answer=masker.unmask(llm_answer.answer),
         found=llm_answer.found,
         sources=sources,
         model=generator.model,
