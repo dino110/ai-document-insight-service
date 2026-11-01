@@ -1,14 +1,26 @@
 """Tests for the pure helpers of the Streamlit page (the page itself is checked by hand)."""
 
 import pytest
-from api_client import AskResponse, EntityLabel, EntityOut, Route
+from api_client import (
+    ApiError,
+    AskResponse,
+    ContractFields,
+    EntityLabel,
+    EntityOut,
+    InvoiceFields,
+    Route,
+)
 from app import (
     HISTORY_ANSWER_CHARS,
     ChatMessage,
     answer_caption,
+    check_rows,
+    contract_rows,
     conversation_history,
     entity_legend,
+    fields_error,
     highlight,
+    invoice_rows,
     page_html,
     summary_rows,
 )
@@ -261,3 +273,82 @@ def test_summary_rows_use_label_names_in_the_api_order() -> None:
 
 def test_summary_rows_of_a_document_without_entities() -> None:
     assert summary_rows({}) == []
+
+
+# --- Document fields -----------------------------------------------------------
+
+FIELDS: InvoiceFields = {
+    "number": "2026-001",
+    "issuer": "Car d.o.o.",
+    "issuer_oib": "28196001332",
+    "issuer_iban": "HR7223600004275179790",
+    "buyer": "Horvat d.o.o.",
+    "buyer_oib": "99083863799",
+    "issue_date": "2026-02-27",
+    "due_date": "2026-03-29",
+    "currency": "EUR",
+    "net": "1260.00",
+    "vat": None,
+    "total": "1575.00",
+}
+
+
+def test_invoice_rows_label_every_field_and_mark_missing_ones() -> None:
+    rows = invoice_rows(FIELDS)
+
+    assert len(rows) == 12
+    assert rows[0] == {"Polje": "Broj računa", "Vrijednost": "2026-001"}
+    assert {"Polje": "PDV", "Vrijednost": "-"} in rows
+
+
+def test_contract_rows_label_every_field() -> None:
+    contract: ContractFields = {
+        "client": "Načinović d.o.o.",
+        "client_oib": None,
+        "contractor": "Elvis Antić",
+        "contractor_oib": None,
+        "signed_date": "2026-06-25",
+        "start_date": "2026-07-01",
+        "end_date": "2026-10-29",
+        "fee": "6300.00",
+        "currency": "EUR",
+    }
+
+    rows = contract_rows(contract)
+
+    assert len(rows) == 9
+    assert rows[0] == {"Polje": "Naručitelj", "Vrijednost": "Načinović d.o.o."}
+    assert {"Polje": "Izvršitelj", "Vrijednost": "Elvis Antić"} in rows
+    assert {"Polje": "OIB naručitelja", "Vrijednost": "-"} in rows
+
+
+def test_check_rows_keep_the_api_order_and_show_pass_fail_and_not_checked() -> None:
+    checks: dict[str, bool | None] = {
+        "client_oib_valid": True,
+        "dates_consistent": False,
+        "names_in_entities": None,
+        "a_new_check": True,  # from a newer API: shown by its name
+    }
+
+    assert check_rows(checks) == [
+        {"Provjera": "Kontrolna znamenka OIB-a naručitelja", "Rezultat": "✓"},
+        {"Provjera": "Datumi su u ispravnom redoslijedu", "Rezultat": "✗"},
+        {"Provjera": "Strane su među imenima u dokumentu (NER)", "Rezultat": "- (nije provjereno)"},
+        {"Provjera": "a_new_check", "Rezultat": "✓"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "message"),
+    [
+        (409, "Dokument još nije obrađen."),
+        (502, "Izvlačenje podataka nije uspjelo, pokušaj ponovno."),
+        (503, "Izvlačenje podataka nije dostupno: API nema OpenAI ključ."),
+        (404, "Document not found."),  # anything else: the API's own message
+        (None, "API nije dostupan"),
+    ],
+)
+def test_fields_error_messages(status: int | None, message: str) -> None:
+    detail = "Document not found." if status == 404 else "API nije dostupan"
+
+    assert fields_error(ApiError(status, detail)) == message

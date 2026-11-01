@@ -7,10 +7,12 @@ import httpx2
 import pytest
 from api_client import (
     ASK_TIMEOUT_S,
+    FIELDS_TIMEOUT_S,
     ApiError,
     HistoryMessage,
     ask,
     get_document,
+    get_fields,
     list_documents,
     make_client,
     upload,
@@ -231,3 +233,33 @@ def test_ask_sends_the_history() -> None:
     ask(_client(handler), "abc", "A PDV?", history)
 
     assert bodies == [{"question": "A PDV?", "history": history}]
+
+
+def test_get_fields_requests_the_fields_path_with_a_longer_timeout() -> None:
+    requests: list[httpx2.Request] = []
+    body = {"document_id": "doc-1", "document_type": "invoice", "cached": False}
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(200, json=body)
+
+    result = get_fields(_client(handler), "abc", "doc-1")
+
+    [request] = requests
+    assert (request.method, request.url.path) == ("GET", "/documents/doc-1/fields")
+    assert request.headers["X-Session-ID"] == "abc"
+    assert (
+        request.extensions["timeout"]["read"] == FIELDS_TIMEOUT_S
+    )  # the first call is an LLM call
+    assert result["document_type"] == "invoice"
+
+
+def test_get_fields_error_keeps_the_status() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            503, json={"detail": "The field extraction service is not configured."}
+        )
+
+    with pytest.raises(ApiError) as caught:
+        get_fields(_client(handler), "abc", "doc-1")
+    assert caught.value.status == 503

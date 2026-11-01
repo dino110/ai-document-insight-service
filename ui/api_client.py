@@ -11,8 +11,9 @@ from typing import Literal, TypedDict
 import httpx2
 
 SESSION_HEADER = "X-Session-ID"
-# /ask waits for the embedding and LLM calls (and the SDK's retries), unlike the other calls.
+# /ask and the first /fields call wait for the LLM (and the SDK's retries).
 ASK_TIMEOUT_S = 90.0
+FIELDS_TIMEOUT_S = 90.0
 
 DocumentStatus = Literal["pending", "processed", "failed"]
 # How the API produced an answer: "rag" = search + LLM, the rest without an LLM.
@@ -64,6 +65,45 @@ class DocumentDetail(DocumentOut):
     pages: list[PageOut]
     # Distinct normalised values per label (at most 10), labels in a fixed order.
     entity_summary: dict[EntityLabel, list[str]]
+
+
+class InvoiceFields(TypedDict):
+    number: str | None
+    issuer: str | None
+    issuer_oib: str | None
+    issuer_iban: str | None
+    buyer: str | None
+    buyer_oib: str | None
+    issue_date: str | None  # ISO
+    due_date: str | None
+    currency: str | None
+    net: str | None  # "1575.00"
+    vat: str | None
+    total: str | None
+
+
+class ContractFields(TypedDict):
+    client: str | None  # naručitelj
+    client_oib: str | None
+    contractor: str | None  # izvršitelj
+    contractor_oib: str | None
+    signed_date: str | None  # ISO
+    start_date: str | None
+    end_date: str | None
+    fee: str | None  # "6300.00"
+    currency: str | None
+
+
+class FieldsOut(TypedDict):
+    document_id: str
+    document_type: Literal["invoice", "contract", "other"]
+    summary: str  # written by the LLM, not checked
+    invoice: InvoiceFields | None
+    contract: ContractFields | None
+    checks: dict[str, bool | None]  # names depend on the type; None: not checked
+    warnings: list[str]
+    model: str
+    cached: bool  # read from the database, no LLM call
 
 
 class UploadResponse(TypedDict):
@@ -135,6 +175,19 @@ def get_document(client: httpx2.Client, session_id: str, document_id: str) -> Do
         client, "GET", f"/documents/{document_id}", headers={SESSION_HEADER: session_id}
     )
     data: DocumentDetail = response.json()
+    return data
+
+
+def get_fields(client: httpx2.Client, session_id: str, document_id: str) -> FieldsOut:
+    """Type, summary, fields and checks; the first call per document waits for the LLM."""
+    response = _send(
+        client,
+        "GET",
+        f"/documents/{document_id}/fields",
+        headers={SESSION_HEADER: session_id},
+        timeout=FIELDS_TIMEOUT_S,
+    )
+    data: FieldsOut = response.json()
     return data
 
 

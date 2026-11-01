@@ -17,13 +17,18 @@ import streamlit as st
 from api_client import (
     ApiError,
     AskResponse,
+    ContractFields,
+    DocumentDetail,
     DocumentOut,
     EntityLabel,
     EntityOut,
+    FieldsOut,
     HistoryMessage,
+    InvoiceFields,
     SourceOut,
     ask,
     get_document,
+    get_fields,
     list_documents,
     make_client,
     upload,
@@ -45,6 +50,60 @@ ENTITY_STYLES: dict[EntityLabel, tuple[str, str]] = {
     "IBAN": ("IBAN", "rgba(255, 87, 34, 0.30)"),
     "DATE": ("datum", "rgba(76, 175, 80, 0.30)"),
     "MONEY": ("iznos", "rgba(255, 235, 59, 0.45)"),
+}
+
+
+FieldName = Literal[
+    "number", "issuer", "issuer_oib", "issuer_iban", "buyer", "buyer_oib",
+    "issue_date", "due_date", "currency", "net", "vat", "total",
+]  # fmt: skip
+ContractFieldName = Literal[
+    "client", "client_oib", "contractor", "contractor_oib", "signed_date", "start_date",
+    "end_date", "fee", "currency",
+]  # fmt: skip
+# Literal keys (like keyof in TS) let mypy type fields[name].
+FIELD_LABELS: dict[FieldName, str] = {
+    "number": "Broj računa",
+    "issuer": "Izdavatelj",
+    "issuer_oib": "OIB izdavatelja",
+    "issuer_iban": "IBAN izdavatelja",
+    "buyer": "Kupac",
+    "buyer_oib": "OIB kupca",
+    "issue_date": "Datum izdavanja",
+    "due_date": "Datum dospijeća",
+    "currency": "Valuta",
+    "net": "Osnovica",
+    "vat": "PDV",
+    "total": "Ukupno",
+}
+CONTRACT_LABELS: dict[ContractFieldName, str] = {
+    "client": "Naručitelj",
+    "client_oib": "OIB naručitelja",
+    "contractor": "Izvršitelj",
+    "contractor_oib": "OIB izvršitelja",
+    "signed_date": "Datum potpisa",
+    "start_date": "Početak",
+    "end_date": "Rok predaje / kraj",
+    "fee": "Naknada",
+    "currency": "Valuta",
+}
+# Checks of invoices and contracts; the API sends the ones of the document's type.
+CHECK_LABELS: dict[str, str] = {
+    "issuer_oib_valid": "Kontrolna znamenka OIB-a izdavatelja",
+    "buyer_oib_valid": "Kontrolna znamenka OIB-a kupca",
+    "issuer_iban_valid": "Kontrolne znamenke IBAN-a",
+    "client_oib_valid": "Kontrolna znamenka OIB-a naručitelja",
+    "contractor_oib_valid": "Kontrolna znamenka OIB-a izvršitelja",
+    "amounts_consistent": "Osnovica + PDV = ukupno",
+    "dates_consistent": "Datumi su u ispravnom redoslijedu",
+    "values_in_document": "Vrijednosti postoje u dokumentu",
+    "names_in_entities": "Strane su među imenima u dokumentu (NER)",
+}
+TYPE_LABELS = {"invoice": "račun", "contract": "ugovor", "other": "ostalo"}
+FIELDS_ERRORS = {
+    409: "Dokument još nije obrađen.",
+    502: "Izvlačenje podataka nije uspjelo, pokušaj ponovno.",
+    503: "Izvlačenje podataka nije dostupno: API nema OpenAI ključ.",
 }
 
 
@@ -73,6 +132,8 @@ def init_state() -> None:
         st.session_state.session_id = st.query_params.get("session")
     if "uploader_key" not in st.session_state:
         st.session_state.uploader_key = 0
+    if "fields" not in st.session_state:
+        st.session_state.fields = {}  # document id -> FieldsOut, after "Izvuci podatke"
     if "messages" not in st.session_state:
         # A plain list would be empty again on the next rerun: every interaction
         # runs this script from the top, only st.session_state survives.
@@ -84,6 +145,7 @@ def set_session(session_id: str | None) -> None:
     st.session_state.session_id = session_id
     st.session_state.processed_ids = ()
     st.session_state.messages = []  # answers are about the previous session's documents
+    st.session_state.fields = {}
     if session_id:
         st.query_params["session"] = session_id
     else:
@@ -172,6 +234,14 @@ def document_detail(session_id: str, documents: list[DocumentOut]) -> None:
         st.error(exc.detail)
         return
 
+    text_tab, fields_tab = st.tabs(["Tekst", "Podaci"])
+    with text_tab:
+        document_text(detail)
+    with fields_tab:
+        document_fields(session_id, document_id)
+
+
+def document_text(detail: DocumentDetail) -> None:
     # .get: an API from before phase 5 sends neither field.
     summary = detail.get("entity_summary") or {}
     if summary:
@@ -189,6 +259,67 @@ def document_detail(session_id: str, documents: list[DocumentOut]) -> None:
             # st.html, not st.markdown: document text must not be read as Markdown
             # ("# " would become a heading). page_html escapes the text itself.
             st.html(page_html(page["text"], page.get("entities") or []))
+
+
+def document_fields(session_id: str, document_id: str) -> None:
+    """Type, summary and fields behind a button: tabs render even when hidden, and the first
+    call is an LLM call."""
+    result: FieldsOut | None = st.session_state.fields.get(document_id)
+    if result is None:
+        st.caption("Vrstu, sažetak i polja izvlači AI model; naš kod zatim provjerava polja.")
+        if st.button("Izvuci podatke", icon=":material/data_object:", key=f"fields_{document_id}"):
+            with st.spinner("Izvlačim podatke…"):
+                try:
+                    st.session_state.fields[document_id] = get_fields(
+                        get_client(), session_id, document_id
+                    )
+                except ApiError as exc:
+                    st.error(fields_error(exc))
+                    return
+            st.rerun()  # draw the result without the caption and the button above it
+        return
+
+    st.markdown(f"**Vrsta dokumenta:** {TYPE_LABELS[result['document_type']]}")
+    st.markdown("**Sažetak** (AI model, nije provjeren)")
+    st.markdown(_no_latex(result["summary"]))  # LLM text: Streamlit escapes any HTML in it
+    if result["invoice"] is not None:
+        st.table(invoice_rows(result["invoice"]), hide_index=True)
+    elif result["contract"] is not None:
+        st.table(contract_rows(result["contract"]), hide_index=True)
+    if result["checks"]:
+        st.markdown("**Provjere** (naš kod, bez AI modela)")
+        st.table(check_rows(result["checks"]), hide_index=True)
+    for warning in result["warnings"]:
+        st.warning(warning)
+    source = "spremljeno, bez novog poziva" if result["cached"] else "upravo izvučeno"
+    st.caption(f"{result['model']} · {source}")
+
+
+def invoice_rows(fields: InvoiceFields) -> list[dict[str, str]]:
+    return [
+        {"Polje": label, "Vrijednost": fields[name] or "-"} for name, label in FIELD_LABELS.items()
+    ]
+
+
+def contract_rows(fields: ContractFields) -> list[dict[str, str]]:
+    return [
+        {"Polje": label, "Vrijednost": fields[name] or "-"}
+        for name, label in CONTRACT_LABELS.items()
+    ]
+
+
+def check_rows(checks: dict[str, bool | None]) -> list[dict[str, str]]:
+    """The checks in the API's order; an unknown name (a newer API) is shown as it is."""
+    marks = {True: "✓", False: "✗", None: "- (nije provjereno)"}
+    return [
+        {"Provjera": CHECK_LABELS.get(name, name), "Rezultat": marks[passed]}
+        for name, passed in checks.items()
+    ]
+
+
+def fields_error(exc: ApiError) -> str:
+    """A short Croatian message for the errors the fields endpoint documents."""
+    return FIELDS_ERRORS.get(exc.status or 0, exc.detail)
 
 
 def show_message(message: ChatMessage) -> None:
