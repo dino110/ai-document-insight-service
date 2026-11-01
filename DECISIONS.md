@@ -219,3 +219,27 @@ Short records of non-trivial decisions: context, decision, alternatives, consequ
   - **Cost and latency:** one call of about 4 s per document, paid once, then served from the database.
   - **Limits:** documents longer than 12,000 characters are cut; only invoices and contracts get fields; diacritics lost by OCR are not restored; names and addresses still go to OpenAI (021).
   - **Next steps:** answer `/ask` questions such as "all invoices from January above 5,000 EUR" from the fields and use them as metadata filters before retrieval (015); extract during processing once most documents are opened anyway; restore names from an official register by OIB, which is reliable thanks to its check digit; addresses and places as fields.
+
+## 023 – Rate limits per session and per IP, in memory
+
+- **Context:** `/ask` and `/fields` call OpenAI, so every request costs money, and `/upload` can start minutes of OCR. Nothing limited them. Authentication (JWT) does not exist yet, and the session id is chosen by the client (007). All users of the Streamlit UI reach the API from the UI container's address.
+- **Decision:** A FastAPI dependency, `RateLimit(budget)` in `api/deps.py`, on the three expensive routes (`dependencies=[Depends(...)]`, so endpoints need no parameter for it).
+  - **Budgets:** `/ask` and `/fields` share an "llm" budget of 20 requests a minute per session, and `/upload` has 10 a minute per session. On top, every client IP gets 100 requests a minute across all three routes, so inventing new session ids does not escape the limit. Reads are not limited. Every `/ask` counts, also questions the router answers without the LLM, and every `/fields`, also stored results: the check runs before the route.
+  - **Over a limit:** 429 with `Retry-After` and "Too many requests, try again in N s." The rejected request is not counted. The log names the budget and whether the session or the IP was over, never the session id.
+  - **Counting:** `InMemoryRateLimiter` (`core/rate_limit.py`) behind a `RateLimiter` protocol. It keeps a sliding window of request times per key in a `deque`, under a lock (sync endpoints run in a threadpool). Keys without a request in the last window are dropped every 1000 hits. It is created once in `lifespan`.
+  - **Keys:** the session comes from the raw `X-Session-ID` header and is used only if it matches the session pattern; otherwise only the IP counts. The IP is the connection's address. `X-Forwarded-For` is ignored, because without a known proxy any client can set it.
+  - **Settings:** `rate_limit_llm_per_minute`, `rate_limit_upload_per_minute`, `rate_limit_ip_per_minute`; 0 turns one off. Tests turn them off in `conftest.py`, except the tests of the limits themselves. The evaluation scripts wait for `Retry-After` and retry, as a client should.
+- **Alternatives:**
+  - `slowapi` (a decorator per endpoint that needs `request: Request` in its signature, and it is weakly typed for mypy strict);
+  - limits per IP only (the UI container would share one budget for every user);
+  - limits per session only (a new session id per request escapes them);
+  - Redis now (shared between API instances and kept across restarts, but another service to run, planned in phase 8);
+  - a token bucket (allows short bursts; a sliding window is simpler to explain and test);
+  - a limit at a reverse proxy (nginx, an API gateway): there is no proxy in this setup.
+- **Consequences:** Measured only in tests (11 API tests, 6 unit tests with a fake clock). A runaway client now costs at most 20 LLM calls a minute per session and 100 requests a minute per IP.
+  - **Limits:**
+    - counts live in one process, so they reset on restart, and two API instances would double the limit;
+    - every UI user shares the UI container's IP budget, so 100 a minute across all UI users;
+    - behind a reverse proxy every client has the proxy's address, so the proxy must be trusted explicitly;
+    - a client with many IPs is not stopped.
+  - **Next steps:** with JWT (phase 6) the session key becomes the user id from the token, which the client cannot invent; a Redis implementation behind the same protocol (phase 8); a daily cost budget per user next to the per-minute limit.
