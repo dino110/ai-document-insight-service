@@ -1,9 +1,11 @@
 """Document upload and listing."""
 
 import hashlib
+from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, get_args
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from sqlmodel import col, select
@@ -19,11 +21,22 @@ from docinsight.api.deps import (
     require_session_id,
 )
 from docinsight.core.files import DetectedType, detect_file_type
+from docinsight.nlp.ner import EntityLabel
 from docinsight.processing import process_document
-from docinsight.schemas import DocumentDetail, DocumentOut, PageOut, UploadResponse
-from docinsight.storage.models import Document, DocumentPage
+from docinsight.schemas import (
+    DocumentDetail,
+    DocumentOut,
+    PageEntityOut,
+    PageOut,
+    UploadResponse,
+)
+from docinsight.storage.models import Document, DocumentEntity, DocumentPage
 
 router = APIRouter(tags=["documents"])
+
+
+# Per label in the document summary: enough to recognise a document, short for the UI.
+ENTITY_SUMMARY_LIMIT = 10
 
 
 @dataclass(frozen=True)
@@ -158,8 +171,33 @@ def get_document(
         select(DocumentPage)
         .where(DocumentPage.document_id == document_id)
         .order_by(col(DocumentPage.page_number))
-    )
+    ).all()
+    # One query for the entities of all pages, grouped here: not one query per page (N+1).
+    entities = db.exec(
+        select(DocumentEntity)
+        .where(DocumentEntity.document_id == document_id)
+        .order_by(col(DocumentEntity.page_number), col(DocumentEntity.start))
+    ).all()
+    by_page: defaultdict[int, list[PageEntityOut]] = defaultdict(list)
+    for entity in entities:
+        by_page[entity.page_number].append(PageEntityOut.model_validate(entity))
+
     return DocumentDetail(
         **DocumentOut.model_validate(document).model_dump(),
-        pages=[PageOut.model_validate(page) for page in pages],
+        pages=[
+            # model_validate checks the stored method string against the Literal at runtime.
+            PageOut.model_validate({**page.model_dump(), "entities": by_page[page.page_number]})
+            for page in pages
+        ],
+        entity_summary=_entity_summary(entities),
     )
+
+
+def _entity_summary(entities: Sequence[DocumentEntity]) -> dict[EntityLabel, list[str]]:
+    """Distinct normalised values per label, in order of appearance, labels in a fixed order."""
+    values: defaultdict[str, list[str]] = defaultdict(list)
+    for entity in entities:
+        seen = values[entity.label]
+        if entity.normalized not in seen and len(seen) < ENTITY_SUMMARY_LIMIT:
+            seen.append(entity.normalized)
+    return {label: values[label] for label in get_args(EntityLabel) if values[label]}

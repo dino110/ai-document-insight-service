@@ -2,11 +2,13 @@
 
 import json
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from factories import FAKE_OCR_TEXT, FakeOcrEngine, make_image_pdf, make_png, make_text_pdf
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlmodel import Session, col, select
 
 from docinsight.api.deps import get_entity_extractor, get_ocr_engine
@@ -18,6 +20,7 @@ from docinsight.main import app
 from docinsight.nlp.ner import Entity, RuleEntityExtractor
 from docinsight.processing import process_document
 from docinsight.qa.guard import Language
+from docinsight.schemas import DocumentDetail
 from docinsight.storage.models import DocumentChunk, DocumentEntity, DocumentPage
 
 PDF = b"%PDF-1.4\n1 0 obj << >> endobj\n%%EOF\n"
@@ -238,17 +241,20 @@ def test_digital_pdf_is_processed_from_text_layer(
     assert [p["page_number"] for p in pages] == [1, 2]
     assert {p["method"] for p in pages} == {"text_layer"}
     assert "1.575,00 EUR" in pages[0]["text"]
-    assert set(pages[0]) == {"page_number", "text", "method"}
+    assert set(pages[0]) == {"page_number", "text", "method", "entities"}
     assert fake_ocr.calls == 0
 
 
 def test_image_is_processed_with_ocr(client: TestClient, fake_ocr: FakeOcrEngine) -> None:
     document_id = _upload_one(client, "photo.png", make_png())
 
-    detail = _detail(client, document_id)
+    detail = DocumentDetail.model_validate(_detail(client, document_id))
 
-    assert detail["status"] == "processed"
-    assert detail["pages"] == [{"page_number": 1, "text": FAKE_OCR_TEXT, "method": "ocr"}]
+    assert detail.status == "processed"
+    [page] = detail.pages
+    assert (page.page_number, page.text, page.method) == (1, FAKE_OCR_TEXT, "ocr")
+    # Entities are found in OCR text too, with offsets into it.
+    assert [(e.label, e.normalized) for e in page.entities] == [("MONEY", "1575.00")]
     assert fake_ocr.calls == 1
 
 
@@ -492,3 +498,104 @@ def test_ner_failure_does_not_fail_processing(
     assert _entities(document_id) == []
     assert "entity extraction failed" in caplog.text
     assert "99083863799" not in caplog.text  # never the document text
+
+
+# --- Entities in the document detail --------------------------------------------
+
+
+def test_detail_has_entities_per_page_and_a_summary(client: TestClient) -> None:
+    content = (SAMPLE_DOCS / "racun-2026-001.pdf").read_bytes()
+    expected = json.loads((SAMPLE_DOCS / "expected.json").read_text())["racun-2026-001.pdf"]
+    document_id = _upload_one(client, "racun-2026-001.pdf", content)
+
+    body = _detail(client, document_id)
+    detail = DocumentDetail.model_validate(body)  # typed access, and the shape is checked
+
+    [page] = detail.pages
+    assert all(page.text[e.start : e.end] == e.text for e in page.entities)
+    pages = body["pages"]
+    assert isinstance(pages, list)
+    assert set(pages[0]["entities"][0]) == {"text", "label", "normalized", "start", "end"}
+    summary = detail.entity_summary
+    assert summary["OIB"] == [expected["issuer_oib"], expected["buyer_oib"]]  # page order
+    assert summary["IBAN"] == [expected["issuer_iban"]]  # printed twice, listed once
+    assert summary["ORG"] == [expected["issuer"], expected["buyer"]]
+    assert expected["total"] in summary["MONEY"]
+    # Labels come in a fixed order, not in order of appearance.
+    assert list(summary) == [
+        label
+        for label in ("PERSON", "ORG", "LOC", "MISC", "OIB", "IBAN", "DATE", "MONEY")
+        if label in summary
+    ]
+
+
+def test_summary_lists_a_value_once_across_pages(client: TestClient) -> None:
+    content = make_text_pdf("Kupac Horvat d.o.o., OIB 99083863799", pages=3)
+    document_id = _upload_one(client, "racun.pdf", content)
+
+    detail = DocumentDetail.model_validate(_detail(client, document_id))
+
+    assert [len(page.entities) for page in detail.pages] == [2, 2, 2]
+    assert detail.entity_summary == {"ORG": ["Horvat d.o.o."], "OIB": ["99083863799"]}
+
+
+def test_summary_keeps_the_first_ten_values_per_label(client: TestClient) -> None:
+    amounts = ", ".join(f"{n},00 EUR" for n in range(1, 13))
+    document_id = _upload_one(client, "racun.pdf", make_text_pdf(f"Stavke: {amounts}"))
+
+    detail = DocumentDetail.model_validate(_detail(client, document_id))
+
+    assert len(detail.pages[0].entities) == 12
+    assert detail.entity_summary["MONEY"] == [f"{n}.00" for n in range(1, 11)]
+
+
+def test_document_without_entities_has_empty_lists(client: TestClient) -> None:
+    # Long enough for the text layer (a short page would go to the fake OCR instead).
+    text = "Ovdje nema nikakvih podataka koje bi pravila ili model prepoznali."
+    document_id = _upload_one(client, "tekst.pdf", make_text_pdf(text))
+
+    detail = DocumentDetail.model_validate(_detail(client, document_id))
+
+    assert detail.pages[0].entities == []
+    assert detail.entity_summary == {}
+
+
+@pytest.fixture
+def select_count(client: TestClient) -> Iterator[list[str]]:
+    """The SELECT statements the app's engine runs, to spot one query per page (N+1)."""
+    statements: list[str] = []
+
+    def record(conn: object, cursor: object, statement: str, *args: object) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(app.state.engine, "before_cursor_execute", record)
+    yield statements
+    event.remove(app.state.engine, "before_cursor_execute", record)
+
+
+def test_detail_query_count_does_not_grow_with_pages(
+    client: TestClient, select_count: list[str]
+) -> None:
+    text = "Kupac Horvat d.o.o., OIB 99083863799"
+    one = _upload_one(client, "one.pdf", make_text_pdf(text, pages=1))
+    five = _upload_one(client, "five.pdf", make_text_pdf(text, pages=5))
+
+    select_count.clear()
+    _detail(client, one)
+    for_one_page = len(select_count)
+    select_count.clear()
+    _detail(client, five)
+
+    assert len(select_count) == for_one_page == 3  # document, pages, entities
+
+
+def test_summary_labels_have_a_fixed_order_not_the_order_on_the_page(
+    client: TestClient,
+) -> None:
+    text = "Ukupno 1.575,00 EUR, rok placanja 29.03.2026., OIB 99083863799"  # Latin-1 font
+    document_id = _upload_one(client, "racun.pdf", make_text_pdf(text))
+
+    detail = DocumentDetail.model_validate(_detail(client, document_id))
+
+    assert list(detail.entity_summary) == ["OIB", "DATE", "MONEY"]  # page: MONEY, DATE, OIB

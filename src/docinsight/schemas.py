@@ -39,20 +39,34 @@ class DocumentOut(BaseModel):
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
-class PageOut(BaseModel):
-    """Extracted text of one page."""
+class PageEntityOut(BaseModel):
+    """A named entity on a page: page.text[start:end] == text."""
 
     model_config = ConfigDict(from_attributes=True)
+
+    text: str
+    label: EntityLabel
+    normalized: str  # comparable form: "1575.00", "2026-03-29", an IBAN without spaces
+    start: int
+    end: int
+
+
+class PageOut(BaseModel):
+    """Extracted text of one page, with the named entities found in it."""
 
     page_number: int
     text: str
     method: Literal["text_layer", "ocr"]
+    entities: list[PageEntityOut] = Field(default_factory=list)
 
 
 class DocumentDetail(DocumentOut):
     """A document with its extracted pages, in page order."""
 
     pages: list[PageOut]
+    # Distinct normalised values per label, in order of appearance, at most 10 per label:
+    # what the document is about at a glance ({"OIB": ["28196001332", ...], ...}).
+    entity_summary: dict[EntityLabel, list[str]] = Field(default_factory=dict)
 
 
 class UploadResponse(BaseModel):
