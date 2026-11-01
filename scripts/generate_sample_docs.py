@@ -572,6 +572,20 @@ def generate(out: Path, seed: int) -> list[str]:
         files[f"{name}-scan.pdf"] = scan_pdf
         expected[f"{name}-scan.jpg"] = expected[f"{name}-scan.pdf"] = expected[f"{name}.pdf"]
 
+    # Added later, after the scans and from their own generator, so every document above
+    # stays byte for byte the same.
+    extra_rng = random.Random(seed + 2)
+    for i in range(4, 8):
+        inv = make_invoice(i, fake, extra_rng, iban_rng)
+        name = f"racun-{inv.number}"
+        files[f"{name}.pdf"] = render_invoice(inv)
+        expected[f"{name}.pdf"] = invoice_expected(inv)
+    for i, language in enumerate(languages, start=3):
+        contract = make_contract(language, fake, extra_rng)
+        name = f"ugovor-{i:02d}"
+        files[f"{name}.pdf"] = render_contract(contract)
+        expected[f"{name}.pdf"] = contract_expected(contract)
+
     for filename, content in files.items():
         (out / filename).write_bytes(content)
     (out / "expected.json").write_text(

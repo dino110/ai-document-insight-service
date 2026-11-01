@@ -87,7 +87,7 @@ def test_run_against_the_app_produces_a_report(
     assert not next(r for r in results if r.id == "none-interest").answer_ok  # found=true
     assert "### Evaluation: test run" in text
     assert "| Answer accuracy | " in text
-    assert "9 documents uploaded" in text
+    assert "15 documents uploaded" in text  # more than one upload request allows
 
 
 def test_follow_up_questions_depend_on_their_history() -> None:

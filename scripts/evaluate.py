@@ -24,6 +24,8 @@ from pydantic import TypeAdapter
 
 SAMPLE_DIR = Path(__file__).resolve().parent.parent / "sample_docs"
 CONTENT_TYPES = {".pdf": "application/pdf", ".jpg": "image/jpeg", ".png": "image/png"}
+# The API's default DOCINSIGHT_MAX_FILES_PER_REQUEST; more files go in several requests.
+UPLOAD_BATCH = 10
 
 
 class EvalHistoryMessage(TypedDict):
@@ -104,12 +106,13 @@ def upload_and_wait(
 ) -> dict[str, str]:
     """Upload the files and poll until none is pending; return filename -> status."""
     headers = {"X-Session-ID": session_id}
-    files = [
-        ("files", (n, (SAMPLE_DIR / n).read_bytes(), CONTENT_TYPES[Path(n).suffix]))
-        for n in filenames
-    ]
-    response = client.post("/upload", files=files, headers=headers)
-    response.raise_for_status()
+    for start in range(0, len(filenames), UPLOAD_BATCH):
+        files = [
+            ("files", (n, (SAMPLE_DIR / n).read_bytes(), CONTENT_TYPES[Path(n).suffix]))
+            for n in filenames[start : start + UPLOAD_BATCH]
+        ]
+        response = client.post("/upload", files=files, headers=headers)
+        response.raise_for_status()
     deadline = time.monotonic() + timeout_s
     while True:
         documents = client.get("/documents", headers=headers).json()

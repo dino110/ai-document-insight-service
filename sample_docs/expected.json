@@ -103,5 +103,77 @@
     "start_date": "2026-07-01",
     "end_date": "2026-10-29",
     "language": "hr"
+  },
+  "racun-2026-004.pdf": {
+    "number": "2026-004",
+    "issuer": "Jagarinec Bičak d.o.o.",
+    "issuer_oib": "11284696558",
+    "issuer_iban": "HR8223400096109020244",
+    "buyer": "Puškarić j.d.o.o.",
+    "buyer_oib": "25492181915",
+    "issue_date": "2026-07-29",
+    "due_date": "2026-08-28",
+    "net": "4129.80",
+    "vat": "1032.45",
+    "total": "5162.25"
+  },
+  "racun-2026-005.pdf": {
+    "number": "2026-005",
+    "issuer": "Huljev d.o.o.",
+    "issuer_oib": "27733243009",
+    "issuer_iban": "HR7323600008919019755",
+    "buyer": "Hećimović Puškarić d.o.o.",
+    "buyer_oib": "70557798235",
+    "issue_date": "2026-06-11",
+    "due_date": "2026-07-11",
+    "net": "6150.00",
+    "vat": "1537.50",
+    "total": "7687.50"
+  },
+  "racun-2026-006.pdf": {
+    "number": "2026-006",
+    "issuer": "Bingula d.o.o.",
+    "issuer_oib": "19988459366",
+    "issuer_iban": "HR1924840082215094529",
+    "buyer": "Nišević Jelavić d.o.o.",
+    "buyer_oib": "25513906096",
+    "issue_date": "2026-08-22",
+    "due_date": "2026-09-21",
+    "net": "3733.50",
+    "vat": "933.38",
+    "total": "4666.88"
+  },
+  "racun-2026-007.pdf": {
+    "number": "2026-007",
+    "issuer": "Filar d.d.",
+    "issuer_oib": "51410642832",
+    "issuer_iban": "HR1623600008147560769",
+    "buyer": "Rukavina j.d.o.o.",
+    "buyer_oib": "14741895877",
+    "issue_date": "2026-03-04",
+    "due_date": "2026-03-19",
+    "net": "137.50",
+    "vat": "34.38",
+    "total": "171.88"
+  },
+  "ugovor-03.pdf": {
+    "parties": [
+      "Matković d.o.o.",
+      "Ivana Lisica"
+    ],
+    "fee": "12800.00",
+    "start_date": "2026-03-22",
+    "end_date": "2026-05-21",
+    "language": "hr"
+  },
+  "ugovor-04.pdf": {
+    "parties": [
+      "Jaković d.d.",
+      "Dragica Tonc"
+    ],
+    "fee": "8700.00",
+    "start_date": "2026-04-28",
+    "end_date": "2026-06-27",
+    "language": "en"
   }
 }

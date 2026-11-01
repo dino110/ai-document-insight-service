@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 import pytest
-from evaluate_fields import FIELDS, documents, expected_values, field_matches, run
+from evaluate_fields import FIELDS, Kind, documents, expected_values, field_matches, run
 from fastapi.testclient import TestClient
 
 from docinsight.api.deps import get_field_extractor
@@ -38,8 +38,14 @@ def test_documents_are_the_sample_documents() -> None:
         "racun-2026-003.pdf",
         "ugovor-01.pdf",
         "ugovor-02.pdf",
+        "racun-2026-004.pdf",
+        "racun-2026-005.pdf",
+        "racun-2026-006.pdf",
+        "racun-2026-007.pdf",
+        "ugovor-03.pdf",
+        "ugovor-04.pdf",
     ]
-    assert len(documents(include_scans=True)) == 9  # plus two scans of each of two documents
+    assert len(documents(include_scans=True)) == 15  # plus two scans of each of two documents
 
 
 def test_contract_parties_become_client_and_contractor() -> None:
@@ -58,22 +64,12 @@ class ExpectedExtractor:
     model = "fake-llm"
 
     def extract(self, pages: Sequence[tuple[int, str]]) -> DocumentExtraction:
-        text = pages[0][1]
-        name = next(
-            (
-                f"racun-{number}.pdf"
-                for number in ("2026-001", "2026-002", "2026-003")
-                if number in text
-            ),
-            "ugovor-02.pdf" if "AGREEMENT" in text else "ugovor-01.pdf",
-        )
-        if name.startswith("racun-"):
-            values = expected_values("invoice", documents(include_scans=False)[name])
+        kind, values = self._sample(pages[0][1])
+        if kind == "invoice":
             invoice = InvoiceData(currency="EUR", **{f: values[f] for f in FIELDS["invoice"]})
             return DocumentExtraction(
                 document_type="invoice", summary="Račun.", invoice=invoice, contract=None
             )
-        values = expected_values("contract", documents(include_scans=False)[name])
         contract = ContractData(
             client_oib=None,
             contractor_oib=None,
@@ -85,19 +81,29 @@ class ExpectedExtractor:
             document_type="contract", summary="Ugovor.", invoice=None, contract=contract
         )
 
+    @staticmethod
+    def _sample(text: str) -> tuple[Kind, dict[str, str]]:
+        """The invoice number or the client's name tells the sample documents apart."""
+        for name, expected in documents(include_scans=False).items():
+            kind: Kind = "invoice" if name.startswith("racun-") else "contract"
+            values = expected_values(kind, expected)
+            if values["number" if kind == "invoice" else "client"] in text:
+                return kind, values
+        raise ValueError("not a sample document")
+
 
 def test_run_against_the_app_produces_a_report(client: TestClient) -> None:
     app.dependency_overrides[get_field_extractor] = ExpectedExtractor
 
     text, results = run(client, label="test run", include_scans=False, timeout_s=30)
 
-    assert [r.status_code for r in results] == [200] * 5
+    assert [r.status_code for r in results] == [200] * 11
     assert all(r.type_ok and all(r.fields_ok.values()) for r in results)
     assert all(r.summary_chars > 0 for r in results)
     assert all(all(r.ner_found.values()) for r in results)
     assert "### Field extraction: test run" in text
-    assert "| **all fields** | 43/43 (100%) |" in text
-    assert "| Identifiers and amounts among the entities (local NER) | 14/14 (100%) |" in text
+    assert "| **all fields** | 97/97 (100%) |" in text
+    assert "| Identifiers and amounts among the entities (local NER) | 32/32 (100%) |" in text
     # Rules only in tests: the contractors (people) are not among the entities.
     contracts = [r for r in results if r.kind == "contract"]
     assert all(r.failed_checks == ["names_in_entities"] for r in contracts)

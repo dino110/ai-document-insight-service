@@ -54,7 +54,7 @@ def croatian_amount(amount: str) -> str:
 
 
 def test_sample_documents_have_the_expected_numbers_of_identifiers() -> None:
-    assert (len(OIBS), len(IBANS)) == (6, 3)
+    assert (len(OIBS), len(IBANS)) == (14, 7)
 
 
 @pytest.mark.parametrize("oib", OIBS)
