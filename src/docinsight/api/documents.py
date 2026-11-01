@@ -16,6 +16,7 @@ from docinsight.api.deps import (
     EmbedderDep,
     EntityExtractorDep,
     OcrDep,
+    RateLimit,
     SettingsDep,
     get_or_create_session_id,
     require_session_id,
@@ -72,10 +73,12 @@ def _read_and_validate(upload: UploadFile, max_bytes: int) -> _ValidatedFile:
     "/upload",
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(RateLimit("upload"))],
     responses={
         status.HTTP_400_BAD_REQUEST: {"description": "An empty file or too many files."},
         status.HTTP_413_CONTENT_TOO_LARGE: {"description": "A file is over the size limit."},
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {"description": "A file is not PDF, PNG or JPEG."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Rate limit reached; see Retry-After."},
     },
 )
 def upload_documents(

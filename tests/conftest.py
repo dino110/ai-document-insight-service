@@ -32,6 +32,10 @@ def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("DOCINSIGHT_OCR_ENABLED", "false")
     # Rules only: loading the spaCy models in every API test would add a second each.
     monkeypatch.setenv("DOCINSIGHT_NER_BACKEND", "rules")
+    # Rate limits off: suites and the evaluation runs send many requests in one session.
+    # tests/test_rate_limit_api.py turns them on.
+    for budget in ("LLM", "UPLOAD", "IP"):
+        monkeypatch.setenv(f"DOCINSIGHT_RATE_LIMIT_{budget}_PER_MINUTE", "0")
     return tmp_path
 
 

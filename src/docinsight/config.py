@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     # Entities in answers. "auto": spaCy models plus rules when the models load, else rules.
     ner_backend: Literal["auto", "spacy", "rules"] = "auto"
 
+    # Requests per minute; 0 turns a limit off. LLM: /ask and /fields share one budget.
+    rate_limit_llm_per_minute: int = Field(default=20, ge=0)  # per session
+    rate_limit_upload_per_minute: int = Field(default=10, ge=0)  # per session
+    # Per client IP, across all limited routes: a client can invent new session ids.
+    rate_limit_ip_per_minute: int = Field(default=100, ge=0)
+
     @field_validator("openai_api_key", mode="before")
     @classmethod
     def _empty_key_is_none(cls, value: object) -> object:

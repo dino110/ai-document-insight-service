@@ -102,6 +102,7 @@ CHECK_LABELS: dict[str, str] = {
 TYPE_LABELS = {"invoice": "račun", "contract": "ugovor", "other": "ostalo"}
 FIELDS_ERRORS = {
     409: "Dokument još nije obrađen.",
+    429: "Previše zahtjeva u kratkom vremenu, pokušaj ponovno za minutu.",
     502: "Izvlačenje podataka nije uspjelo, pokušaj ponovno.",
     503: "Izvlačenje podataka nije dostupno: API nema OpenAI ključ.",
 }

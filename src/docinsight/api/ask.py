@@ -16,6 +16,7 @@ from docinsight.api.deps import (
     EmbedderDep,
     EntityExtractorDep,
     GeneratorDep,
+    RateLimit,
     RouterDep,
     SettingsDep,
     require_session_id,
@@ -38,9 +39,12 @@ SNIPPET_CHARS = 300
 @router.post(
     "/ask",
     response_model=AskResponse,
+    # Every question counts, also those the router answers without the LLM.
+    dependencies=[Depends(RateLimit("llm"))],
     responses={
         # Only on the "rag" route: the other routes need neither documents nor an LLM.
         status.HTTP_409_CONFLICT: {"description": "No processed documents to search."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Rate limit reached; see Retry-After."},
         status.HTTP_502_BAD_GATEWAY: {"description": "The embedding or LLM call failed."},
         status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "No LLM is configured."},
     },

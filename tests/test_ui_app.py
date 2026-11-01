@@ -352,6 +352,7 @@ def test_check_rows_keep_the_api_order_and_show_pass_fail_and_not_checked() -> N
     ("status", "message"),
     [
         (409, "Dokument još nije obrađen."),
+        (429, "Previše zahtjeva u kratkom vremenu, pokušaj ponovno za minutu."),
         (502, "Izvlačenje podataka nije uspjelo, pokušaj ponovno."),
         (503, "Izvlačenje podataka nije dostupno: API nema OpenAI ključ."),
         (404, "Document not found."),  # anything else: the API's own message

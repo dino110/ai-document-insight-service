@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 
-from docinsight.api.deps import DbSession, FieldExtractorDep, require_session_id
+from docinsight.api.deps import DbSession, FieldExtractorDep, RateLimit, require_session_id
 from docinsight.nlp.fields import FIELDS_FORMAT, check_document
 from docinsight.qa.generator import LlmRequestError, LlmUnavailableError
 from docinsight.schemas import FieldsOut
@@ -22,9 +22,12 @@ router = APIRouter(tags=["documents"])
 @router.get(
     "/documents/{document_id}/fields",
     response_model=FieldsOut,
+    # Also stored results count: the budget is per request, checked before the cache.
+    dependencies=[Depends(RateLimit("llm"))],
     responses={
         status.HTTP_404_NOT_FOUND: {"description": "No such document for this session."},
         status.HTTP_409_CONFLICT: {"description": "The document is not processed."},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"description": "Rate limit reached; see Retry-After."},
         status.HTTP_502_BAD_GATEWAY: {"description": "The LLM call failed."},
         status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "No LLM is configured."},
     },

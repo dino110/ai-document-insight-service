@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from docinsight import __version__
 from docinsight.api import ask, documents, fields, health
 from docinsight.config import get_settings
+from docinsight.core.rate_limit import InMemoryRateLimiter
 from docinsight.extraction.ocr import create_ocr_engine
 from docinsight.indexing.embeddings import create_embedder
 from docinsight.nlp.fields import create_field_extractor
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.generator = create_generator(settings)
     app.state.field_extractor = create_field_extractor(settings)
     app.state.router = RuleBasedRouter()  # compiles its patterns once
+    app.state.rate_limiter = InMemoryRateLimiter()  # counts live as long as the process
     # Loading the spaCy models takes about a second.
     app.state.entity_extractor = await run_in_threadpool(create_entity_extractor, settings)
     yield
