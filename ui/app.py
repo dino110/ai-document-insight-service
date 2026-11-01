@@ -172,11 +172,23 @@ def document_detail(session_id: str, documents: list[DocumentOut]) -> None:
         st.error(exc.detail)
         return
 
+    # .get: an API from before phase 5 sends neither field.
+    summary = detail.get("entity_summary") or {}
+    if summary:
+        st.markdown("**Entiteti** (lokalni NER, bez AI modela)")
+        st.table(summary_rows(summary), hide_index=True)
+        all_entities = [e for page in detail["pages"] for e in page.get("entities") or []]
+        st.caption(entity_legend(all_entities), unsafe_allow_html=True)
+
     for page in detail["pages"]:
         label = f"Stranica {page['page_number']} · {METHOD_LABELS[page['method']]}"
         with st.expander(label, expanded=page["page_number"] == 1):
-            # st.text, not st.markdown: document text must not be rendered as markup.
-            st.text(page["text"] or "(prazna stranica)")
+            if not page["text"]:
+                st.text("(prazna stranica)")
+                continue
+            # st.html, not st.markdown: document text must not be read as Markdown
+            # ("# " would become a heading). page_html escapes the text itself.
+            st.html(page_html(page["text"], page.get("entities") or []))
 
 
 def show_message(message: ChatMessage) -> None:
@@ -201,13 +213,15 @@ def show_message(message: ChatMessage) -> None:
             st.caption(message["caption"])
 
 
-def highlight(text: str, entities: Sequence[EntityOut]) -> str:
-    """The text as Markdown with HTML, every entity wrapped in a coloured <mark>.
+def highlight(text: str, entities: Sequence[EntityOut], *, markdown: bool = True) -> str:
+    """The text with every entity wrapped in a coloured <mark>, for Markdown or plain HTML.
 
-    The text comes from the LLM, which read the documents, so it is untrusted: every
-    piece is escaped and the <mark> tags are the only HTML in the result. Offsets refer
-    to the original text, so it is cut first and each piece is escaped afterwards.
+    The text comes from the LLM or from a document, so it is untrusted: every piece is
+    escaped and the <mark> tags are the only HTML in the result. Offsets refer to the
+    original text, so it is cut first and each piece is escaped afterwards. Only Markdown
+    needs "$" escaped (it would start LaTeX); in plain HTML "\\$" would show up as is.
     """
+    escape = _escape if markdown else html.escape
     parts: list[str] = []
     position = 0
     for entity in sorted(entities, key=lambda e: e["start"]):
@@ -215,14 +229,30 @@ def highlight(text: str, entities: Sequence[EntityOut]) -> str:
         if start < position or text[start:end] != entity["text"]:
             continue  # overlapping or stale offsets: leave that part as plain text
         name, colour = ENTITY_STYLES[entity["label"]]
-        parts.append(_escape(text[position:start]))
+        parts.append(escape(text[position:start]))
         parts.append(
             f'<mark style="background-color: {colour}; color: inherit; padding: 0 2px;"'
-            f' title="{name}">{_escape(text[start:end])}</mark>'
+            f' title="{name}">{escape(text[start:end])}</mark>'
         )
         position = end
-    parts.append(_escape(text[position:]))
+    parts.append(escape(text[position:]))
     return "".join(parts)
+
+
+def page_html(text: str, entities: Sequence[EntityOut]) -> str:
+    """A page for st.html: no Markdown, line breaks kept like st.text, entities marked."""
+    return (
+        '<div style="white-space: pre-wrap; line-height: 1.6;">'
+        f"{highlight(text, entities, markdown=False)}</div>"
+    )
+
+
+def summary_rows(summary: dict[EntityLabel, list[str]]) -> list[dict[str, str]]:
+    """The API's entity summary as table rows, in the API's (fixed) label order."""
+    return [
+        {"Oznaka": ENTITY_STYLES[label][0], "Vrijednosti": ", ".join(values)}
+        for label, values in summary.items()
+    ]
 
 
 def entity_legend(entities: Sequence[EntityOut]) -> str:

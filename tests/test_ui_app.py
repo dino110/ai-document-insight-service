@@ -9,6 +9,8 @@ from app import (
     conversation_history,
     entity_legend,
     highlight,
+    page_html,
+    summary_rows,
 )
 
 
@@ -222,3 +224,40 @@ def test_legend_lists_labels_present_in_a_fixed_order() -> None:
         "organizacija",
         "iznos",
     ]
+
+
+# --- Page text and entity summary -----------------------------------------------
+
+
+def test_page_html_keeps_line_breaks_and_escapes_the_document() -> None:
+    text = "# Ugovor\n<script>x()</script>\nOIB: 99083863799\nCijena: $100"
+    result = page_html(text, [entity(text, "99083863799", "OIB")])
+
+    assert result.startswith('<div style="white-space: pre-wrap;')
+    assert result.endswith("</div>")
+    # Line breaks stay real line breaks; "# " stays text because st.html has no Markdown.
+    assert "# Ugovor\n&lt;script&gt;x()&lt;/script&gt;\nOIB: <mark " in result
+    assert ">99083863799</mark>\nCijena: $100</div>" in result  # no "\$" in plain HTML
+
+
+def test_highlight_for_html_does_not_escape_dollars() -> None:
+    assert highlight("$5 & $6", [], markdown=False) == "$5 &amp; $6"
+    assert highlight("$5 & $6", []) == "\\$5 &amp; \\$6"
+
+
+def test_summary_rows_use_label_names_in_the_api_order() -> None:
+    summary: dict[EntityLabel, list[str]] = {
+        "ORG": ["Car d.o.o.", "Horvat d.o.o."],
+        "OIB": ["28196001332"],
+        "MONEY": ["1575.00"],
+    }
+
+    assert summary_rows(summary) == [
+        {"Oznaka": "organizacija", "Vrijednosti": "Car d.o.o., Horvat d.o.o."},
+        {"Oznaka": "OIB", "Vrijednosti": "28196001332"},
+        {"Oznaka": "iznos", "Vrijednosti": "1575.00"},
+    ]
+
+
+def test_summary_rows_of_a_document_without_entities() -> None:
+    assert summary_rows({}) == []

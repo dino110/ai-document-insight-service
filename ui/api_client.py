@@ -42,14 +42,28 @@ class DocumentOut(TypedDict):
     error: str | None
 
 
+class EntityOut(TypedDict):
+    text: str
+    label: EntityLabel
+    start: int  # character offsets in the answer or page text: text[start:end] == text
+    end: int
+
+
+class PageEntityOut(EntityOut):
+    normalized: str  # "1575.00", "2026-03-29", an IBAN without spaces
+
+
 class PageOut(TypedDict):
     page_number: int
     text: str
     method: Literal["text_layer", "ocr"]
+    entities: list[PageEntityOut]
 
 
 class DocumentDetail(DocumentOut):
     pages: list[PageOut]
+    # Distinct normalised values per label (at most 10), labels in a fixed order.
+    entity_summary: dict[EntityLabel, list[str]]
 
 
 class UploadResponse(TypedDict):
@@ -63,13 +77,6 @@ class SourceOut(TypedDict):
     page_number: int
     snippet: str  # start of the cited chunk
     score: float
-
-
-class EntityOut(TypedDict):
-    text: str
-    label: EntityLabel
-    start: int  # character offsets in the answer: answer[start:end] == text
-    end: int
 
 
 class HistoryMessage(TypedDict):
