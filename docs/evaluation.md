@@ -1,4 +1,4 @@
-# Evaluation of `/ask`
+# Evaluation of `/ask` and invoice fields
 
 Question set: `sample_docs/eval_questions.json` (20 questions: 17 answerable from the
 sample invoices and contracts, in Croatian and English, including paraphrases and
@@ -104,3 +104,49 @@ the other contract ("01.07.2026."), with a citation. After `python -m docinsight
 | none-interest | ✓ | - | - | Dokumenti ne navode kamatnu stopu za zakašnjelo plaćanje. |
 | none-iban-en | ✓ | - | - | The documents do not provide the issuer’s IBAN. |
 | none-director | ✓ | - | - | Dokumenti ne navode tko je direktor tvrtke Car d.o.o. |
+
+## Document fields (local, 5 digital documents)
+
+`scripts/evaluate_fields.py` uploads the sample invoices and contracts, calls `GET /documents/{id}/fields` once per document and compares the type and every field with `sample_docs/expected.json` (amounts as numbers, dates as dates, OIBs and IBANs without spaces, names exactly). For contracts, expected.json knows the parties, the fee and the start and end dates. OIBs and IBANs were masked in the LLM call (decision 021): the model returned placeholders and the API put the real values back, also in the summaries. The NER row shows whether local NER found the expected OIBs, IBAN, total and fee among the entities of each document, which `values_in_document` relies on. All five summaries were in Croatian and stated only facts from the documents; after this run the prompt asks for amounts and dates in the summary as the document writes them (1.575,00 EUR, 29.03.2026.), which a spot check on two documents confirmed, with the fields unchanged.
+
+Note on the question set: since the sample invoices have an IBAN (phase 5), the unanswerable question `none-iban-en` in the reports above is no longer unanswerable. It is replaced by `none-swift-en` (SWIFT/BIC code) in `eval_questions.json`; the reports above are kept as they were measured.
+
+### Report: OpenAI gpt-6-luna, 5 digital documents, local
+
+5 documents, 5 answered with 200.
+
+| Field | Correct |
+| --- | --- |
+| invoice: number | 3/3 (100%) |
+| invoice: issuer | 3/3 (100%) |
+| invoice: issuer_oib | 3/3 (100%) |
+| invoice: issuer_iban | 3/3 (100%) |
+| invoice: buyer | 3/3 (100%) |
+| invoice: buyer_oib | 3/3 (100%) |
+| invoice: issue_date | 3/3 (100%) |
+| invoice: due_date | 3/3 (100%) |
+| invoice: net | 3/3 (100%) |
+| invoice: vat | 3/3 (100%) |
+| invoice: total | 3/3 (100%) |
+| contract: client | 2/2 (100%) |
+| contract: contractor | 2/2 (100%) |
+| contract: start_date | 2/2 (100%) |
+| contract: end_date | 2/2 (100%) |
+| contract: fee | 2/2 (100%) |
+| **all fields** | 43/43 (100%) |
+
+| Metric | Value |
+| --- | --- |
+| Document type | 5/5 (100%) |
+| Summary returned | 5/5 (100%) |
+| Documents with a failed check | 0 |
+| Identifiers and amounts among the entities (local NER) | 14/14 (100%) |
+| Extraction p50 / max | 2813 / 3738 ms |
+
+| Document | Fields | Failed checks | Wrong fields |
+| --- | --- | --- | --- |
+| racun-2026-001.pdf | 11/11 | - | - |
+| racun-2026-002.pdf | 11/11 | - | - |
+| racun-2026-003.pdf | 11/11 | - | - |
+| ugovor-01.pdf | 5/5 | - | - |
+| ugovor-02.pdf | 5/5 | - | - |

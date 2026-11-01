@@ -148,8 +148,8 @@
     "page": null
   },
   {
-    "id": "none-iban-en",
-    "question": "What is the IBAN of the issuer of invoice 2026-001?",
+    "id": "none-swift-en",
+    "question": "What is the SWIFT/BIC code of the issuer's bank on invoice 2026-001?",
     "expected": null,
     "document": null,
     "page": null
