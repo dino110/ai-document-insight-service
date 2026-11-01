@@ -169,8 +169,12 @@ curl -s $API/documents -H "X-Session-ID: $SID"
 
 ### Document text and entities
 
+The next examples need the id of `racun-2026-001.pdf` from that list. Copy it by hand, or read it with [jq](https://jqlang.org/):
+
 ```bash
-curl -s $API/documents/139c28b019e4498680d5b22a5ce1ade6 -H "X-Session-ID: $SID"
+ID=$(curl -s $API/documents -H "X-Session-ID: $SID" \
+  | jq -r 'first(.[] | select(.filename == "racun-2026-001.pdf")) | .id')
+curl -s $API/documents/$ID -H "X-Session-ID: $SID"
 ```
 
 ```json
@@ -267,7 +271,7 @@ It took 60 ms, and the question never left the service. Other routes are `reject
 ### Document fields
 
 ```bash
-curl -s $API/documents/139c28b019e4498680d5b22a5ce1ade6/fields -H "X-Session-ID: $SID"
+curl -s $API/documents/$ID/fields -H "X-Session-ID: $SID"
 ```
 
 ```json
