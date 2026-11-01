@@ -599,3 +599,9 @@ def test_summary_labels_have_a_fixed_order_not_the_order_on_the_page(
     detail = DocumentDetail.model_validate(_detail(client, document_id))
 
     assert list(detail.entity_summary) == ["OIB", "DATE", "MONEY"]  # page: MONEY, DATE, OIB
+
+
+def test_openapi_lists_every_upload_error(client: TestClient) -> None:
+    responses = client.get("/openapi.json").json()["paths"]["/upload"]["post"]["responses"]
+
+    assert {"201", "400", "413", "415", "422"} <= set(responses)

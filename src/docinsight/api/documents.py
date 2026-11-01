@@ -72,6 +72,11 @@ def _read_and_validate(upload: UploadFile, max_bytes: int) -> _ValidatedFile:
     "/upload",
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "An empty file or too many files."},
+        status.HTTP_413_CONTENT_TOO_LARGE: {"description": "A file is over the size limit."},
+        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {"description": "A file is not PDF, PNG or JPEG."},
+    },
 )
 def upload_documents(
     files: Annotated[list[UploadFile], File(description="PDF, PNG or JPEG files.")],
